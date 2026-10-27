@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "Tournament": {
+      "title": "Tournament",
+      "description": "Global tournament roster, fixtures, match results, and administrative state.",
+      "type": "object",
+      "properties": {
+        "players": {
+          "type": "array",
+          "description": "List of tournament players and customized profile pictures"
+        },
+        "results": {
+          "type": "array",
+          "description": "Recorded match results"
+        },
+        "adminPasscode": {
+          "type": "string",
+          "description": "Administrator passcode"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["players", "results"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with authentication and saved preferences in Firestore.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "User unique identifier from Firebase Auth"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "User display name"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "User avatar photo URL"
+        },
+        "favoriteTeam": {
+          "type": "string",
+          "description": "User selected favorite team in the tournament"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "description": "Timestamp of the user's latest login"
+        }
+      },
+      "required": ["uid", "email"]
+    }
+  },
+  "firestore": {
+    "/tournament/{tournamentId}": {
+      "schema": "Tournament",
+      "description": "Persistent shared tournament data across all devices and sessions"
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile data persisted in Firestore"
+    }
+  }
+}

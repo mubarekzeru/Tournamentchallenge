@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none">
+  <defs>
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.5" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+  <!-- Dark navy background circle matching eFootball profile emblem -->
+  <rect width="100" height="100" rx="16" fill="#020738" />
+  <g filter="url(#neonGlow)">
+    <!-- eFootball Top Arc -->
+    <path
+      d="M 12.05 32 L 35.68 32 A 23 23 0 0 1 64.32 32 L 87.95 32 A 42 42 0 0 0 12.05 32 Z"
+      fill="#00f0ff"
+    />
+    <!-- eFootball Middle Bar -->
+    <path
+      d="M 8 41.8 L 69.8 41.8 A 8.2 8.2 0 0 1 69.8 58.2 L 8 58.2 Z"
+      fill="#00f0ff"
+    />
+    <!-- eFootball Bottom Arc -->
+    <path
+      d="M 12.05 68 L 35.68 68 A 23 23 0 0 0 64.32 68 L 87.95 68 A 42 42 0 0 1 12.05 68 Z"
+      fill="#00f0ff"
+    />
+  </g>
+</svg>

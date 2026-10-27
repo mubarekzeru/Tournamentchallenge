@@ -1,0 +1,6 @@
+{
+  "name": "EFOOTBALL Tournament Challenge",
+  "description": "Ethiopian Esports League eFootball Tournament Challenge: 7 players, 14 matchdays, live standings, fixtures schedule, and verified owner score desk.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

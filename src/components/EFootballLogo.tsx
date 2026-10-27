@@ -1,0 +1,53 @@
+import React from 'react';
+
+interface EFootballLogoProps {
+  className?: string;
+  size?: number;
+}
+
+export const EFootballLogo: React.FC<EFootballLogoProps> = ({
+  className = 'h-5 w-5',
+}) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 100 100"
+    fill="none"
+    className={className}
+    aria-hidden="true"
+  >
+    <defs>
+      <linearGradient id="efootball-cyan-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#4df3ff" />
+        <stop offset="45%" stopColor="#00e5ff" />
+        <stop offset="100%" stopColor="#00b4d8" />
+      </linearGradient>
+    </defs>
+    {/* eFootball Top Arc */}
+    <path
+      d="M 9.6 36.2 A 42 42 0 0 1 90.4 36.2 L 76.2 36.2 A 27.5 27.5 0 0 0 23.8 36.2 Z"
+      fill="url(#efootball-cyan-grad)"
+      stroke="#0096c7"
+      strokeWidth="0.8"
+    />
+    {/* eFootball Middle Bar */}
+    <rect
+      x="5.8"
+      y="44"
+      width="72.4"
+      height="12.5"
+      rx="2.5"
+      fill="url(#efootball-cyan-grad)"
+      stroke="#0096c7"
+      strokeWidth="0.8"
+    />
+    {/* eFootball Bottom Arc */}
+    <path
+      d="M 9.6 63.8 A 42 42 0 0 0 90.4 63.8 L 76.2 63.8 A 27.5 27.5 0 0 1 23.8 63.8 Z"
+      fill="url(#efootball-cyan-grad)"
+      stroke="#0096c7"
+      strokeWidth="0.8"
+    />
+  </svg>
+);
+
+export default EFootballLogo;
