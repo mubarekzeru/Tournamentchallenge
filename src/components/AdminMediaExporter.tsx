@@ -33,6 +33,7 @@ import {
 } from '../utils/groupStage';
 import { PlayerStatsExportCard, PlayerStatEntry } from './PlayerStatsExportCard';
 import { PlayerRevealExportCard } from './PlayerRevealExportCard';
+import { BatchPlayerRevealExportCard } from './BatchPlayerRevealExportCard';
 import { TotalRosterExportCard } from './TotalRosterExportCard';
 import { EFootballLogo } from './EFootballLogo';
 
@@ -68,6 +69,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   const [selectedMatchday, setSelectedMatchday] = useState<number | 'upcoming'>('upcoming');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectedRevealPlayerId, setSelectedRevealPlayerId] = useState<string>('');
+  const [revealMode, setRevealMode] = useState<'single' | 'batch'>('single');
+  const [selectedBatchPlayerIds, setSelectedBatchPlayerIds] = useState<string[]>([]);
 
   // DOM Refs to exportable elements
   const bracketExportRef = useRef<HTMLDivElement>(null);
@@ -77,6 +80,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   const standingsExportRef = useRef<HTMLDivElement>(null);
   const statsExportRef = useRef<HTMLDivElement>(null);
   const playerRevealExportRef = useRef<HTMLDivElement>(null);
+  const batchRevealExportRef = useRef<HTMLDivElement>(null);
   const totalRosterExportRef = useRef<HTMLDivElement>(null);
 
   // Selected player for reveal card
@@ -93,6 +97,16 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
     const idx = players.findIndex((p) => p.id === selectedRevealPlayer.id);
     return idx >= 0 ? idx + 1 : 1;
   }, [players, selectedRevealPlayer]);
+
+  // Players to reveal together in batch mode
+  const batchPlayers = useMemo(() => {
+    if (selectedBatchPlayerIds.length > 0) {
+      const filtered = players.filter((p) => selectedBatchPlayerIds.includes(p.id));
+      if (filtered.length > 0) return filtered;
+    }
+    // Default to all players up to 6
+    return players.slice(0, 6);
+  }, [players, selectedBatchPlayerIds]);
 
   const playerMap = useMemo(() => new Map(players.map((p) => [p.user, p])), [players]);
 
@@ -439,10 +453,17 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
               } else if (activeTab === 'stats') {
                 handleExport(statsExportRef, 'ethiopian-efootball-player-status-and-stats');
               } else if (activeTab === 'player_reveal') {
-                handleExport(
-                  playerRevealExportRef,
-                  `ethiopian-efootball-player-reveal-${selectedRevealPlayer?.user || 'competitor'}`
-                );
+                if (revealMode === 'batch') {
+                  handleExport(
+                    batchRevealExportRef,
+                    `ethiopian-efootball-new-players-reveal-batch-${batchPlayers.length}-players`
+                  );
+                } else {
+                  handleExport(
+                    playerRevealExportRef,
+                    `ethiopian-efootball-player-reveal-${selectedRevealPlayer?.user || 'competitor'}`
+                  );
+                }
               } else if (activeTab === 'total_roster') {
                 handleExport(totalRosterExportRef, 'ethiopian-efootball-total-registered-players');
               }
@@ -1569,50 +1590,209 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'player_reveal' && (
         <div className="space-y-4">
-          {/* Player Selector Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#05093e] p-3.5 rounded-xl border border-[#eaff28]/40 shadow-lg">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-[#eaff28]" />
-                <span>Select Competitor to Reveal:</span>
-              </span>
+          {/* Mode Switcher & Controls Bar */}
+          <div className="bg-[#05093e] p-3.5 rounded-xl border border-[#eaff28]/40 shadow-lg space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3ce7ff]/20 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-[#b9c4f0] uppercase font-mono">
+                  Reveal Poster Format:
+                </span>
+                <div className="flex items-center gap-1.5 bg-[#030628] p-1 rounded-xl border border-[#3ce7ff]/30">
+                  <button
+                    type="button"
+                    onClick={() => setRevealMode('single')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      revealMode === 'single'
+                        ? 'bg-[#eaff28] text-[#050842] font-black shadow-md'
+                        : 'text-[#b9c4f0] hover:text-white'
+                    }`}
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>Single Player Spotlight</span>
+                  </button>
 
-              {players.length > 0 ? (
-                <select
-                  value={selectedRevealPlayer?.id || ''}
-                  onChange={(e) => setSelectedRevealPlayerId(e.target.value)}
-                  className="rounded-lg border border-[#3ce7ff]/50 bg-[#071360] px-3 py-1.5 text-xs font-bold text-white focus:border-[#eaff28] focus:outline-none cursor-pointer"
-                >
-                  {players.map((p, idx) => (
-                    <option key={p.id} value={p.id} className="bg-[#071056] text-white">
-                      #{idx + 1} &middot; {p.team} (@{p.user})
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <span className="text-xs text-[#8e9bd4] italic">No players registered yet</span>
-              )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRevealMode('batch');
+                      if (selectedBatchPlayerIds.length === 0 && players.length > 0) {
+                        setSelectedBatchPlayerIds(players.slice(0, 4).map((p) => p.id));
+                      }
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                      revealMode === 'batch'
+                        ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
+                        : 'text-[#b9c4f0] hover:text-white'
+                    }`}
+                  >
+                    <Users className="h-3.5 w-3.5" />
+                    <span>List Multiple Together (Batch Reveal)</span>
+                    <span className="rounded-full bg-[#eaff28] px-1.5 py-0.2 text-[8.5px] font-black text-[#050842] uppercase">
+                      New
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div>
+                {revealMode === 'single' && selectedRevealPlayer && (
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() =>
+                      handleExport(
+                        playerRevealExportRef,
+                        `ethiopian-efootball-player-reveal-${selectedRevealPlayer.user}`
+                      )
+                    }
+                    className="flex items-center gap-1.5 rounded-lg border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Download className="h-3.5 w-3.5 stroke-[2.5]" />
+                    <span>Download Single Reveal PNG</span>
+                  </button>
+                )}
+
+                {revealMode === 'batch' && batchPlayers.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={isExporting}
+                    onClick={() =>
+                      handleExport(
+                        batchRevealExportRef,
+                        `ethiopian-efootball-new-players-reveal-batch-${batchPlayers.length}-players`
+                      )
+                    }
+                    className="flex items-center gap-1.5 rounded-lg border border-[#3ce7ff] bg-[#3ce7ff] hover:bg-[#2bc4db] text-[#050842] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Download className="h-3.5 w-3.5 stroke-[2.5]" />
+                    <span>Download Batch Reveal PNG ({batchPlayers.length} Players)</span>
+                  </button>
+                )}
+              </div>
             </div>
 
-            {selectedRevealPlayer && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-mono text-[#3ce7ff] hidden sm:inline">
-                  Contender #{selectedRevealPlayerNumber} of {players.length}
-                </span>
-                <button
-                  type="button"
-                  disabled={isExporting}
-                  onClick={() =>
-                    handleExport(
-                      playerRevealExportRef,
-                      `ethiopian-efootball-player-reveal-${selectedRevealPlayer.user}`
-                    )
-                  }
-                  className="flex items-center gap-1.5 rounded-lg border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
-                >
-                  <Download className="h-3.5 w-3.5 stroke-[2.5]" />
-                  <span>Download Reveal PNG</span>
-                </button>
+            {/* Mode Specific Options Bar */}
+            {revealMode === 'single' ? (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5 font-mono">
+                    <span>Select Competitor to Reveal:</span>
+                  </span>
+
+                  {players.length > 0 ? (
+                    <select
+                      value={selectedRevealPlayer?.id || ''}
+                      onChange={(e) => setSelectedRevealPlayerId(e.target.value)}
+                      className="rounded-lg border border-[#3ce7ff]/50 bg-[#071360] px-3 py-1.5 text-xs font-bold text-white focus:border-[#eaff28] focus:outline-none cursor-pointer"
+                    >
+                      {players.map((p, idx) => (
+                        <option key={p.id} value={p.id} className="bg-[#071056] text-white">
+                          #{idx + 1} &middot; {p.team} (@{p.user})
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-[#8e9bd4] italic">No players registered yet</span>
+                  )}
+                </div>
+
+                {selectedRevealPlayer && (
+                  <span className="text-[11px] font-mono text-[#3ce7ff]">
+                    Contender #{selectedRevealPlayerNumber} of {players.length}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-white font-mono">
+                      Reveal Multiple Registered Players Together:
+                    </span>
+                    <span className="text-[11px] text-[#3ce7ff] font-mono">
+                      ({batchPlayers.length} of {players.length} selected)
+                    </span>
+                  </div>
+
+                  {/* Batch Selection Presets */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedBatchPlayerIds(players.map((p) => p.id))}
+                      className="rounded-md bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] text-white px-2 py-1 text-[10.5px] font-mono font-bold transition-colors"
+                    >
+                      All ({players.length})
+                    </button>
+                    {players.length >= 2 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBatchPlayerIds(players.slice(0, 2).map((p) => p.id))}
+                        className="rounded-md bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] text-white px-2 py-1 text-[10.5px] font-mono font-bold transition-colors"
+                      >
+                        Latest 2
+                      </button>
+                    )}
+                    {players.length >= 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBatchPlayerIds(players.slice(0, 3).map((p) => p.id))}
+                        className="rounded-md bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] text-white px-2 py-1 text-[10.5px] font-mono font-bold transition-colors"
+                      >
+                        Latest 3
+                      </button>
+                    )}
+                    {players.length >= 4 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBatchPlayerIds(players.slice(0, 4).map((p) => p.id))}
+                        className="rounded-md bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] text-white px-2 py-1 text-[10.5px] font-mono font-bold transition-colors"
+                      >
+                        Latest 4
+                      </button>
+                    )}
+                    {players.length >= 6 && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedBatchPlayerIds(players.slice(0, 6).map((p) => p.id))}
+                        className="rounded-md bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] text-white px-2 py-1 text-[10.5px] font-mono font-bold transition-colors"
+                      >
+                        Latest 6
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Player Chips / Checkboxes for Batch Selection */}
+                <div className="flex flex-wrap items-center gap-1.5 max-h-24 overflow-y-auto p-1 rounded-lg bg-[#020524] border border-[#3ce7ff]/20">
+                  {players.map((p) => {
+                    const isSelected = batchPlayers.some((bp) => bp.id === p.id);
+                    return (
+                      <button
+                        key={`batch-chip-${p.id}`}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            if (batchPlayers.length > 1) {
+                              setSelectedBatchPlayerIds(batchPlayers.filter((bp) => bp.id !== p.id).map((bp) => bp.id));
+                            }
+                          } else {
+                            setSelectedBatchPlayerIds([...batchPlayers.map((bp) => bp.id), p.id]);
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-mono transition-all border ${
+                          isSelected
+                            ? 'border-[#3ce7ff] bg-[#071360] text-white font-bold shadow-sm'
+                            : 'border-white/10 bg-[#03072b] text-[#8e9bd4] hover:border-white/30'
+                        }`}
+                      >
+                        <span className={`h-2 w-2 rounded-full ${isSelected ? 'bg-[#eaff28]' : 'bg-gray-600'}`} />
+                        <span>{p.team}</span>
+                        <span className="text-[#3ce7ff]">(@{p.user})</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
@@ -1627,21 +1807,37 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                 <h4 className="font-sports text-xl font-black text-white mt-3">
                   NO PLAYERS TO REVEAL
                 </h4>
-                <p className="text-xs text-[#b9c4f0] mt-1">
-                  Once competitors register, select them here to download individual reveal announcement cards for Telegram and socials.
+                <p className="text-xs text-[#b9c4f0] mt-1 font-mono">
+                  Once competitors register, select them here to download reveal announcement cards for Telegram and socials.
                 </p>
               </div>
-            ) : selectedRevealPlayer ? (
-              <div className="w-[1200px] mx-auto">
-                <PlayerRevealExportCard
-                  player={selectedRevealPlayer}
-                  totalPlayers={players.length}
-                  playerNumber={selectedRevealPlayerNumber}
+            ) : revealMode === 'single' ? (
+              selectedRevealPlayer ? (
+                <div className="w-[1240px] mx-auto">
+                  <PlayerRevealExportCard
+                    player={selectedRevealPlayer}
+                    totalPlayers={players.length}
+                    playerNumber={selectedRevealPlayerNumber}
+                    tournamentFormat={tournamentFormat}
+                    cardRef={playerRevealExportRef}
+                  />
+                </div>
+              ) : null
+            ) : (
+              <div className="w-[1240px] mx-auto">
+                <BatchPlayerRevealExportCard
+                  players={batchPlayers}
+                  totalTournamentPlayers={players.length}
                   tournamentFormat={tournamentFormat}
-                  cardRef={playerRevealExportRef}
+                  cardRef={batchRevealExportRef}
+                  batchTitle={
+                    batchPlayers.length === players.length
+                      ? 'ALL REGISTERED NEW PLAYERS REVEAL'
+                      : `NEW PLAYERS CLASS REVEAL (${batchPlayers.length} CONTENDERS)`
+                  }
                 />
               </div>
-            ) : null}
+            )}
           </div>
         </div>
       )}
