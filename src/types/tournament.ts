@@ -6,6 +6,7 @@ export interface Player {
   avatarUrl: string;
   phoneNumber?: string; // Player contact phone number (e.g. +251 9... / 09...)
   telegramUsername?: string; // Player Telegram handle (e.g. @username)
+  registeredAt?: string; // Player registration timestamp (ISO string)
   played: number;
   w: number;
   d: number;

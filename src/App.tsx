@@ -611,6 +611,7 @@ export default function App() {
         avatarUrl: playerData.avatarUrl,
         phoneNumber: playerData.phoneNumber,
         telegramUsername: playerData.telegramUsername,
+        registeredAt: new Date().toISOString(),
         points: 0,
         played: 0,
         w: 0,

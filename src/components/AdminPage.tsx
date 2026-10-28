@@ -53,6 +53,7 @@ import {
 } from '../utils/groupStage';
 import { AdminMediaExporter } from './AdminMediaExporter';
 import { TournamentStatsSection } from './TournamentStatsSection';
+import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 
 interface AdminPageProps {
   isAdmin: boolean;
@@ -1201,6 +1202,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         </div>
                       </div>
                     </div>
+
+                    {/* Registration Date & Time Stamp */}
+                    {(() => {
+                      const reg = getPlayerRegistrationTimestamp(p);
+                      return (
+                        <div className="mt-2.5 pt-2 border-t border-[#3ce7ff]/15 flex items-center justify-between text-[10.5px] font-mono">
+                          <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
+                            <Calendar className="h-3 w-3 text-[#3ce7ff]" />
+                            <span>Registered:</span>
+                          </span>
+                          <span className="text-white font-semibold">
+                            {reg.dateStr} &middot; <span className="text-[#eaff28]">{reg.timeStr}</span>
+                          </span>
+                        </div>
+                      );
+                    })()}
 
                     {/* Footer Stats Pill */}
                     <div className="mt-3 pt-2 border-t border-[#3ce7ff]/10 flex items-center justify-between text-[10px] text-[#8e9bd4] font-mono">

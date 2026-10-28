@@ -1,7 +1,8 @@
 import React from 'react';
-import { Users, ShieldCheck, Trophy, Sparkles, Send, Phone, CheckCircle2 } from 'lucide-react';
+import { Users, ShieldCheck, Trophy, Sparkles, Send, Phone, CheckCircle2, Calendar, Clock } from 'lucide-react';
 import { Player, TournamentFormat } from '../types/tournament';
 import { EFootballLogo } from './EFootballLogo';
+import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 
 export interface TotalRosterExportCardProps {
   players: Player[];
@@ -14,6 +15,7 @@ export const TotalRosterExportCard: React.FC<TotalRosterExportCardProps> = ({
   tournamentFormat = 'league_double',
   cardRef,
 }) => {
+  const currentYear = new Date().getFullYear(); // e.g. 2026 only
   const formatName =
     tournamentFormat === 'knockout' ||
     tournamentFormat === 'group_knockout' ||
@@ -178,14 +180,14 @@ export const TotalRosterExportCard: React.FC<TotalRosterExportCardProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <span className="block text-[10px] font-mono font-bold uppercase tracking-wider text-[#8e9bd4] whitespace-nowrap">
-              OFFICIAL SEASON
+              CURRENT YEAR
             </span>
             <div className="flex items-baseline gap-1.5 mt-0.5">
               <span className="font-sports text-2xl font-black text-[#3ce7ff] leading-none">
-                2025
+                {currentYear}
               </span>
               <span className="text-xs font-mono font-bold text-white uppercase">
-                / 2026
+                Season
               </span>
             </div>
           </div>
@@ -220,60 +222,72 @@ export const TotalRosterExportCard: React.FC<TotalRosterExportCardProps> = ({
                 : 'grid-cols-3 lg:grid-cols-4'
             }`}
           >
-            {players.map((p, idx) => (
-              <div
-                key={p.id || p.user}
-                className="rounded-2xl border border-[#3ce7ff]/30 bg-gradient-to-br from-[#071158] via-[#050b40] to-[#030628] p-4 shadow-md flex items-center gap-3.5 relative overflow-hidden"
-              >
-                {/* Contender Index Pill */}
-                <div className="absolute top-2.5 right-2.5 rounded-md bg-[#020520] border border-[#3ce7ff]/30 px-2 py-0.5 text-[9.5px] font-mono font-bold text-[#3ce7ff]">
-                  #{idx + 1}
-                </div>
-
-                {/* Avatar */}
-                <div className="relative shrink-0">
-                  <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-[#3ce7ff] bg-[#03072b] shadow-[0_0_12px_rgba(60,231,255,0.25)]">
-                    <img
-                      src={p.avatarUrl}
-                      alt={p.team}
-                      className="w-full h-full object-cover object-center"
-                      referrerPolicy="no-referrer"
-                    />
+            {players.map((p, idx) => {
+              const reg = getPlayerRegistrationTimestamp(p);
+              return (
+                <div
+                  key={p.id || p.user}
+                  className="rounded-2xl border border-[#3ce7ff]/30 bg-gradient-to-br from-[#071158] via-[#050b40] to-[#030628] p-4 shadow-md flex items-center gap-3.5 relative overflow-hidden"
+                >
+                  {/* Contender Index Pill */}
+                  <div className="absolute top-2.5 right-2.5 rounded-md bg-[#020520] border border-[#3ce7ff]/30 px-2 py-0.5 text-[9.5px] font-mono font-bold text-[#3ce7ff]">
+                    #{idx + 1}
                   </div>
-                  <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#eaff28] text-[#050842]">
-                    <CheckCircle2 className="h-3 w-3 stroke-[3]" />
-                  </span>
-                </div>
 
-                {/* Details */}
-                <div className="min-w-0 flex-1 pr-6">
-                  {/* Team / Club Name */}
-                  <h4 className="font-sports text-sm sm:text-base font-black text-white truncate tracking-wide leading-tight">
-                    {p.team}
-                  </h4>
-
-                  {/* Username */}
-                  <p className="text-xs font-mono text-[#3ce7ff] font-bold truncate leading-tight mt-0.5">
-                    @{p.user}
-                  </p>
-
-                  {/* Contact Badges */}
-                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
-                    <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#3ce7ff] border border-[#3ce7ff]/20 truncate max-w-[130px]">
-                      <Send className="h-2.5 w-2.5 shrink-0" />
-                      <span className="truncate">@{p.telegramUsername || p.user}</span>
+                  {/* Avatar */}
+                  <div className="relative shrink-0">
+                    <div className="w-16 h-16 rounded-2xl overflow-hidden border-2 border-[#3ce7ff] bg-[#03072b] shadow-[0_0_12px_rgba(60,231,255,0.25)]">
+                      <img
+                        src={p.avatarUrl}
+                        alt={p.team}
+                        className="w-full h-full object-cover object-center"
+                        referrerPolicy="no-referrer"
+                      />
+                    </div>
+                    <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-[#eaff28] text-[#050842]">
+                      <CheckCircle2 className="h-3 w-3 stroke-[3]" />
                     </span>
+                  </div>
 
-                    {p.phoneNumber && (
-                      <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#eaff28] border border-[#eaff28]/20 truncate max-w-[125px]">
-                        <Phone className="h-2.5 w-2.5 shrink-0" />
-                        <span className="truncate">{p.phoneNumber}</span>
+                  {/* Details */}
+                  <div className="min-w-0 flex-1 pr-6">
+                    {/* Team / Club Name */}
+                    <h4 className="font-sports text-sm sm:text-base font-black text-white truncate tracking-wide leading-tight">
+                      {p.team}
+                    </h4>
+
+                    {/* Username */}
+                    <p className="text-xs font-mono text-[#3ce7ff] font-bold truncate leading-tight mt-0.5">
+                      @{p.user}
+                    </p>
+
+                    {/* Registration Date & Time Badge */}
+                    <div className="mt-1 flex items-center gap-1 text-[9.5px] font-mono text-[#b9c4f0] whitespace-nowrap">
+                      <Calendar className="h-2.5 w-2.5 text-[#3ce7ff] shrink-0" />
+                      <span>Reg:</span>
+                      <span className="text-white font-bold">{reg.dateStr}</span>
+                      <span className="text-[#8e9bd4]">&middot;</span>
+                      <span className="text-[#eaff28] font-bold">{reg.timeStr}</span>
+                    </div>
+
+                    {/* Contact Badges */}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
+                      <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#3ce7ff] border border-[#3ce7ff]/20 truncate max-w-[130px]">
+                        <Send className="h-2.5 w-2.5 shrink-0" />
+                        <span className="truncate">@{p.telegramUsername || p.user}</span>
                       </span>
-                    )}
+
+                      {p.phoneNumber && (
+                        <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#eaff28] border border-[#eaff28]/20 truncate max-w-[125px]">
+                          <Phone className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate">{p.phoneNumber}</span>
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

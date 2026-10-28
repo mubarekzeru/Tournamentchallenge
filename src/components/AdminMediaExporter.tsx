@@ -1007,11 +1007,11 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                   <EFootballLogo className="h-7 w-7" />
                 </div>
                 <div style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
-                  <div className="flex items-center gap-2 mb-1" style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
+                  <div className="flex items-center gap-2 mb-1 flex-nowrap" style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
                     <span className="h-2 w-2 rounded-full bg-[#eaff28] shadow-[0_0_8px_#eaff28] shrink-0 inline-block" />
                     <p
-                      className="font-efootball-stencil font-sports text-[11px] font-black uppercase tracking-wider text-[#eaff28] m-0 whitespace-nowrap inline-block"
-                      style={{ lineHeight: '1.2', whiteSpace: 'nowrap', minWidth: 'max-content' }}
+                      className="font-sports text-[11px] font-black uppercase tracking-wider text-[#eaff28] m-0 whitespace-nowrap inline-block"
+                      style={{ lineHeight: '1.2', whiteSpace: 'nowrap', minWidth: 'max-content', display: 'inline-block' }}
                     >
                       OFFICIAL FIXTURE SCHEDULE &middot; ETHIOPIAN eFOOTBALL
                     </p>
@@ -1418,11 +1418,11 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                   <EFootballLogo className="h-7 w-7" />
                 </div>
                 <div style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
-                  <div className="flex items-center gap-2 mb-1" style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
+                  <div className="flex items-center gap-2 mb-1 flex-nowrap" style={{ whiteSpace: 'nowrap', minWidth: 'max-content' }}>
                     <span className="h-2 w-2 rounded-full bg-[#eaff28] shadow-[0_0_8px_#eaff28] shrink-0 inline-block" />
                     <p
-                      className="font-efootball-stencil font-sports text-[11px] font-black uppercase tracking-wider text-[#eaff28] m-0 whitespace-nowrap inline-block"
-                      style={{ lineHeight: '1.2', whiteSpace: 'nowrap', minWidth: 'max-content' }}
+                      className="font-sports text-[11px] font-black uppercase tracking-wider text-[#eaff28] m-0 whitespace-nowrap inline-block"
+                      style={{ lineHeight: '1.2', whiteSpace: 'nowrap', minWidth: 'max-content', display: 'inline-block' }}
                     >
                       OFFICIAL TABLE &middot; ETHIOPIAN eFOOTBALL
                     </p>

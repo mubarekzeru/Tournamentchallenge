@@ -1,7 +1,8 @@
 import React from 'react';
-import { ShieldCheck, Send, Phone, Trophy, Sparkles, CheckCircle2, UserCheck, Users, Calendar } from 'lucide-react';
+import { ShieldCheck, Send, Phone, Trophy, Sparkles, CheckCircle2, UserCheck, Users, Calendar, Clock } from 'lucide-react';
 import { Player, TournamentFormat } from '../types/tournament';
 import { EFootballLogo } from './EFootballLogo';
+import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 
 export interface PlayerRevealExportCardProps {
   player: Player;
@@ -18,6 +19,9 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
   tournamentFormat = 'league_double',
   cardRef,
 }) => {
+  const currentYear = new Date().getFullYear(); // e.g. 2026 only
+  const reg = getPlayerRegistrationTimestamp(player);
+
   const formatName =
     tournamentFormat === 'knockout' ||
     tournamentFormat === 'group_knockout' ||
@@ -28,12 +32,6 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
       : tournamentFormat === 'league_single'
       ? 'Single Leg Round-Robin League'
       : 'Double Leg Premier Championship';
-
-  const formattedDate = new Date().toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
 
   return (
     <div
@@ -79,7 +77,7 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
               className="text-xs text-[#3ce7ff] font-mono m-0 mt-1"
               style={{ lineHeight: '1.2', whiteSpace: 'nowrap' }}
             >
-              Verified Competitor Enlistment &middot; Official Ethiopian Esports League Registry
+              Verified Competitor Enlistment &middot; Official Ethiopian Esports League Registry &middot; {currentYear}
             </p>
           </div>
         </div>
@@ -96,9 +94,10 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
               {totalPlayers} Players
             </span>
           </div>
-          <p className="text-[10px] text-[#3ce7ff] font-mono m-0 whitespace-nowrap">
-            Verified &middot; {formattedDate}
-          </p>
+          <div className="flex items-center gap-1.5 text-[11px] font-mono font-bold text-[#3ce7ff] whitespace-nowrap">
+            <Calendar className="h-3.5 w-3.5 text-[#eaff28]" />
+            <span>Registered: <strong className="text-white">{reg.dateStr}</strong> · <strong className="text-[#eaff28]">{reg.timeStr}</strong></span>
+          </div>
         </div>
       </div>
 
@@ -147,7 +146,7 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
             >
               {player.team}
             </h1>
-            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#3ce7ff]/20">
+            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#3ce7ff]/20 flex-wrap">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-[#8e9bd4] font-mono">Player Handle:</span>
                 <span className="font-sports text-xl font-black text-[#eaff28] tracking-wide">
@@ -155,8 +154,13 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
                 </span>
               </div>
               <span className="h-4 w-px bg-[#3ce7ff]/30" />
+              <div className="flex items-center gap-1.5 text-xs font-mono text-[#8e9bd4]">
+                <Calendar className="h-3.5 w-3.5 text-[#3ce7ff]" />
+                <span>Registered: <strong className="text-white">{reg.dateStr}</strong> <span className="text-[#eaff28]">({reg.timeStr})</span></span>
+              </div>
+              <span className="h-4 w-px bg-[#3ce7ff]/30" />
               <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[10px] font-mono font-bold text-emerald-300 uppercase tracking-wider">
-                Season 1 Active
+                Season {currentYear} Active
               </span>
             </div>
           </div>

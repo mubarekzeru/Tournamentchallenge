@@ -2,6 +2,7 @@ import React from 'react';
 import { ShieldCheck, Send, Phone, Trophy, Sparkles, CheckCircle2, UserCheck, Users, Calendar } from 'lucide-react';
 import { Player, TournamentFormat } from '../types/tournament';
 import { EFootballLogo } from './EFootballLogo';
+import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 
 export interface BatchPlayerRevealExportCardProps {
   players: Player[];
@@ -18,6 +19,8 @@ export const BatchPlayerRevealExportCard: React.FC<BatchPlayerRevealExportCardPr
   cardRef,
   batchTitle = 'NEW REGISTRATIONS UNVEILING',
 }) => {
+  const currentYear = new Date().getFullYear(); // e.g. 2026 only
+
   const formatName =
     tournamentFormat === 'knockout' ||
     tournamentFormat === 'group_knockout' ||
@@ -132,84 +135,90 @@ export const BatchPlayerRevealExportCard: React.FC<BatchPlayerRevealExportCardPr
                 : 'grid-cols-3'
             }`}
           >
-            {players.map((p, idx) => (
-              <div
-                key={p.id || p.user}
-                className="rounded-3xl border-2 border-[#3ce7ff]/35 bg-gradient-to-b from-[#091568] via-[#050b40] to-[#020524] p-5 shadow-xl relative overflow-hidden flex flex-col justify-between"
-              >
-                {/* Header Tag inside Card */}
-                <div className="flex items-center justify-between border-b border-[#3ce7ff]/20 pb-3 mb-4">
-                  <div className="flex items-center gap-1.5 rounded-full bg-[#eaff28] text-[#050842] px-3 py-0.5 text-[10px] font-mono font-black uppercase tracking-wider shadow-sm">
-                    <UserCheck className="h-3 w-3" />
-                    <span>Contender #{idx + 1}</span>
-                  </div>
-                  <span className="text-[10px] font-mono text-[#3ce7ff] font-bold uppercase">
-                    Roster Verified
-                  </span>
-                </div>
-
-                {/* Avatar and Basic Credentials Row */}
-                <div className="flex items-center gap-4">
-                  <div className="relative shrink-0">
-                    <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-[#3ce7ff] bg-[#020520] shadow-[0_0_15px_rgba(60,231,255,0.3)]">
-                      <img
-                        src={p.avatarUrl}
-                        alt={p.team}
-                        className="w-full h-full object-cover object-center"
-                        referrerPolicy="no-referrer"
-                      />
+            {players.map((p, idx) => {
+              const reg = getPlayerRegistrationTimestamp(p);
+              return (
+                <div
+                  key={p.id || p.user}
+                  className="rounded-3xl border-2 border-[#3ce7ff]/35 bg-gradient-to-b from-[#091568] via-[#050b40] to-[#020524] p-5 shadow-xl relative overflow-hidden flex flex-col justify-between"
+                >
+                  {/* Header Tag inside Card */}
+                  <div className="flex items-center justify-between border-b border-[#3ce7ff]/20 pb-3 mb-4">
+                    <div className="flex items-center gap-1.5 rounded-full bg-[#eaff28] text-[#050842] px-3 py-0.5 text-[10px] font-mono font-black uppercase tracking-wider shadow-sm">
+                      <UserCheck className="h-3 w-3" />
+                      <span>Contender #{idx + 1}</span>
                     </div>
-                    <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#eaff28] text-[#050842] shadow-sm">
-                      <CheckCircle2 className="h-3.5 w-3.5 stroke-[3]" />
+                    <span className="text-[10px] font-mono text-[#3ce7ff] font-bold uppercase">
+                      Roster Verified
                     </span>
                   </div>
 
-                  <div className="min-w-0 flex-1">
-                    <span className="text-[9.5px] font-mono uppercase tracking-wider text-[#3ce7ff] block">
-                      Registered Club
-                    </span>
-                    <h3 className="font-sports text-xl sm:text-2xl font-black text-white truncate tracking-wide leading-tight my-0.5">
-                      {p.team}
-                    </h3>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <span className="text-xs font-mono text-[#8e9bd4]">Handle:</span>
-                      <span className="font-sports text-base font-black text-[#eaff28] tracking-wide truncate">
-                        @{p.user}
+                  {/* Avatar and Basic Credentials Row */}
+                  <div className="flex items-center gap-4">
+                    <div className="relative shrink-0">
+                      <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-[#3ce7ff] bg-[#020520] shadow-[0_0_15px_rgba(60,231,255,0.3)]">
+                        <img
+                          src={p.avatarUrl}
+                          alt={p.team}
+                          className="w-full h-full object-cover object-center"
+                          referrerPolicy="no-referrer"
+                        />
+                      </div>
+                      <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#eaff28] text-[#050842] shadow-sm">
+                        <CheckCircle2 className="h-3.5 w-3.5 stroke-[3]" />
                       </span>
                     </div>
-                  </div>
-                </div>
 
-                {/* Contact Coordinates Strip */}
-                <div className="mt-4 pt-3 border-t border-[#3ce7ff]/15 grid grid-cols-2 gap-2">
-                  <div className="rounded-xl bg-[#030733]/90 border border-[#3ce7ff]/20 p-2 text-left min-w-0">
-                    <span className="text-[8.5px] font-mono uppercase text-[#3ce7ff] block font-bold flex items-center gap-1">
-                      <Send className="h-2.5 w-2.5 shrink-0" />
-                      <span>Telegram</span>
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[9.5px] font-mono uppercase tracking-wider text-[#3ce7ff] block">
+                        Registered Club
+                      </span>
+                      <h3 className="font-sports text-xl sm:text-2xl font-black text-white truncate tracking-wide leading-tight my-0.5">
+                        {p.team}
+                      </h3>
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <span className="text-xs font-mono text-[#8e9bd4]">Handle:</span>
+                        <span className="font-sports text-base font-black text-[#eaff28] tracking-wide truncate">
+                          @{p.user}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contact Coordinates Strip */}
+                  <div className="mt-4 pt-3 border-t border-[#3ce7ff]/15 grid grid-cols-2 gap-2">
+                    <div className="rounded-xl bg-[#030733]/90 border border-[#3ce7ff]/20 p-2 text-left min-w-0">
+                      <span className="text-[8.5px] font-mono uppercase text-[#3ce7ff] block font-bold flex items-center gap-1">
+                        <Send className="h-2.5 w-2.5 shrink-0" />
+                        <span>Telegram</span>
+                      </span>
+                      <p className="font-mono text-xs font-bold text-white truncate mt-0.5">
+                        @{p.telegramUsername ? p.telegramUsername.replace(/^@/, '') : p.user}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl bg-[#030733]/90 border border-[#3ce7ff]/20 p-2 text-left min-w-0">
+                      <span className="text-[8.5px] font-mono uppercase text-emerald-400 block font-bold flex items-center gap-1">
+                        <Phone className="h-2.5 w-2.5 shrink-0" />
+                        <span>Phone Line</span>
+                      </span>
+                      <p className="font-mono text-xs font-bold text-white truncate mt-0.5">
+                        {p.phoneNumber || 'Registered'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Bottom Card Footer: Registration Date & Time */}
+                  <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/20 flex items-center justify-between text-[9.5px] font-mono">
+                    <span className="flex items-center gap-1.5 text-[#3ce7ff]">
+                      <Calendar className="h-3 w-3 text-[#eaff28] shrink-0" />
+                      <span>Reg: <strong className="text-white">{reg.dateStr}</strong> · <strong className="text-[#eaff28]">{reg.timeStr}</strong></span>
                     </span>
-                    <p className="font-mono text-xs font-bold text-white truncate mt-0.5">
-                      @{p.telegramUsername ? p.telegramUsername.replace(/^@/, '') : p.user}
-                    </p>
-                  </div>
-
-                  <div className="rounded-xl bg-[#030733]/90 border border-[#3ce7ff]/20 p-2 text-left min-w-0">
-                    <span className="text-[8.5px] font-mono uppercase text-emerald-400 block font-bold flex items-center gap-1">
-                      <Phone className="h-2.5 w-2.5 shrink-0" />
-                      <span>Phone Line</span>
-                    </span>
-                    <p className="font-mono text-xs font-bold text-white truncate mt-0.5">
-                      {p.phoneNumber || 'Registered'}
-                    </p>
+                    <span className="text-emerald-400 font-bold whitespace-nowrap">&check; Enlisted {currentYear}</span>
                   </div>
                 </div>
-
-                {/* Bottom Card Footer */}
-                <div className="mt-3 pt-2 border-t border-white/10 flex items-center justify-between text-[9.5px] font-mono text-[#8e9bd4]">
-                  <span>Season 1 Competitor</span>
-                  <span className="text-emerald-400 font-bold">&check; Official Enlistment</span>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
