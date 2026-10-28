@@ -111,7 +111,7 @@ export const PlayerStatsExportCard: React.FC<PlayerStatsExportCardProps> = ({
       }`}
       style={{
         boxSizing: 'border-box',
-        fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
       {/* Ambient background glows */}

@@ -666,8 +666,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={resultsExportRef}
-            className="font-efootball-stencil w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
-            style={{ boxSizing: 'border-box', fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+            className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
+            style={{ boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
           >
             {/* Header Stamp */}
             <div className="flex items-center justify-between border-b border-[#3ce7ff]/25 pb-4 mb-6">
@@ -834,8 +834,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={upcomingExportRef}
-            className="font-efootball-stencil w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
-            style={{ boxSizing: 'border-box', fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+            className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
+            style={{ boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
           >
             {/* Header Stamp */}
             <div className="flex items-center justify-between border-b border-[#3ce7ff]/25 pb-4 mb-6">
@@ -997,8 +997,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={fixturesExportRef}
-            className="font-efootball-stencil w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
-            style={{ boxSizing: 'border-box', fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+            className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
+            style={{ boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
           >
             {/* Poster Header */}
             <div className="flex items-center justify-between border-b border-[#3ce7ff]/25 pb-4 mb-6">
@@ -1185,8 +1185,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={bracketExportRef}
-            className="font-efootball-stencil w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 shadow-2xl relative select-none"
-            style={{ boxSizing: 'border-box', fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+            className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 shadow-2xl relative select-none"
+            style={{ boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
           >
             {/* Header Stamp */}
             <div className="flex items-center justify-between mb-6 relative z-10 border-b border-[#3ce7ff]/20 pb-4">
@@ -1408,8 +1408,8 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={standingsExportRef}
-            className="font-efootball-stencil w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
-            style={{ boxSizing: 'border-box', fontFamily: '"eFootballStencil-Regular", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
+            className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
+            style={{ boxSizing: 'border-box', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}
           >
             {/* Poster Header */}
             <div className="flex items-center justify-between border-b border-[#3ce7ff]/25 pb-4 mb-6">

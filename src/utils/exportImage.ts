@@ -32,7 +32,7 @@ async function getFontEmbedCSS(): Promise<string> {
         font-display: block;
         src: url(data:font/woff2;base64,${base64}) format('woff2');
       }
-      .font-sports, .font-efootball-stencil, .font-club-name, [data-club-name], h1, h2, h3, h4, h5, h6, strong, b, th, .font-bold, .font-extrabold, .font-black {
+      .font-sports, .font-efootball-stencil, .font-club-name, [data-club-name] {
         font-family: 'eFootballStencil-Regular', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
         letter-spacing: 0.01em;
       }
