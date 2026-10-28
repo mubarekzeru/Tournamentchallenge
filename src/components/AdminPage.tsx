@@ -1036,6 +1036,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     {players.length} Active Competitors
                   </span>
 
+                  {/* Download Total Roster Poster Shortcut */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const el = document.getElementById('admin-media-exporter');
+                      if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      if (onToast) onToast('Navigated to Official Graphics Exporter below for Total Roster PNG!', 'info');
+                    }}
+                    disabled={players.length === 0}
+                    className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-extrabold uppercase tracking-wider transition-all border ${
+                      players.length > 0
+                        ? 'border-[#3ce7ff]/50 bg-[#071360] text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#050842] active:scale-95 shadow-md cursor-pointer'
+                        : 'border-gray-700 bg-gray-900/40 text-gray-500 cursor-not-allowed opacity-40'
+                    }`}
+                    title="Generate and download complete registered players roster poster (PNG)"
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>Roster Poster</span>
+                  </button>
+
                   {/* Delete All Players Button */}
                   <button
                     type="button"
@@ -1089,7 +1109,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     className="flex flex-col justify-between rounded-xl border border-[#3ce7ff]/25 bg-[#050842] p-3.5 transition-all hover:border-[#3ce7ff] shadow-md group"
                   >
                     <div>
-                      {/* Top Header Row: Avatar, Team & Edit */}
+                      {/* Top Header Row: Avatar, Team & Action Buttons */}
                       <div className="flex items-start justify-between gap-2.5">
                         <div
                           role="button"
@@ -1117,14 +1137,29 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           </div>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => onOpenEditPlayer(p)}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3ce7ff]/40 bg-[#071056] text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#08104e] transition-colors shrink-0"
-                          title="Edit team, user, phone or telegram"
-                        >
-                          <Edit3 className="h-3.5 w-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.getElementById('admin-media-exporter');
+                              if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              if (onToast) onToast(`Scroll to "New Player Reveal" below to download @${p.user}'s reveal image!`, 'info');
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#eaff28]/50 bg-[#071056] text-[#eaff28] hover:bg-[#eaff28] hover:text-[#08104e] transition-colors"
+                            title={`Download @${p.user} Player Reveal Announcement Poster`}
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onOpenEditPlayer(p)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3ce7ff]/40 bg-[#071056] text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#08104e] transition-colors"
+                            title="Edit team, user, phone or telegram"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Contact Channels Row: Telegram & Phone Number */}

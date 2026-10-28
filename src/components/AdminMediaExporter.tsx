@@ -15,6 +15,7 @@ import {
   Flame,
   LayoutGrid,
   Award,
+  Users,
 } from 'lucide-react';
 import {
   Player,
@@ -31,6 +32,8 @@ import {
   DEFAULT_GROUP_CONFIG,
 } from '../utils/groupStage';
 import { PlayerStatsExportCard, PlayerStatEntry } from './PlayerStatsExportCard';
+import { PlayerRevealExportCard } from './PlayerRevealExportCard';
+import { TotalRosterExportCard } from './TotalRosterExportCard';
 import { EFootballLogo } from './EFootballLogo';
 
 interface AdminMediaExporterProps {
@@ -42,7 +45,15 @@ interface AdminMediaExporterProps {
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
 }
 
-type ExportTab = 'bracket' | 'results' | 'upcoming' | 'fixtures' | 'standings' | 'stats';
+type ExportTab =
+  | 'bracket'
+  | 'results'
+  | 'upcoming'
+  | 'fixtures'
+  | 'standings'
+  | 'stats'
+  | 'player_reveal'
+  | 'total_roster';
 
 export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   players,
@@ -56,6 +67,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [selectedMatchday, setSelectedMatchday] = useState<number | 'upcoming'>('upcoming');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
+  const [selectedRevealPlayerId, setSelectedRevealPlayerId] = useState<string>('');
 
   // DOM Refs to exportable elements
   const bracketExportRef = useRef<HTMLDivElement>(null);
@@ -64,6 +76,23 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   const fixturesExportRef = useRef<HTMLDivElement>(null);
   const standingsExportRef = useRef<HTMLDivElement>(null);
   const statsExportRef = useRef<HTMLDivElement>(null);
+  const playerRevealExportRef = useRef<HTMLDivElement>(null);
+  const totalRosterExportRef = useRef<HTMLDivElement>(null);
+
+  // Selected player for reveal card
+  const selectedRevealPlayer = useMemo(() => {
+    if (selectedRevealPlayerId) {
+      const found = players.find((p) => p.id === selectedRevealPlayerId);
+      if (found) return found;
+    }
+    return players[players.length - 1] || players[0];
+  }, [players, selectedRevealPlayerId]);
+
+  const selectedRevealPlayerNumber = useMemo(() => {
+    if (!selectedRevealPlayer) return 1;
+    const idx = players.findIndex((p) => p.id === selectedRevealPlayer.id);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [players, selectedRevealPlayer]);
 
   const playerMap = useMemo(() => new Map(players.map((p) => [p.user, p])), [players]);
 
@@ -368,7 +397,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   );
 
   return (
-    <section className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#070e52] to-[#030628] p-5 sm:p-7 shadow-[0_0_35px_rgba(60,231,255,0.15)] my-6">
+    <section id="admin-media-exporter" className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#070e52] to-[#030628] p-5 sm:p-7 shadow-[0_0_35px_rgba(60,231,255,0.15)] my-6 scroll-mt-20">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3ce7ff]/20 pb-4 mb-5">
         <div className="flex items-center gap-3">
@@ -409,6 +438,13 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                 handleExport(standingsExportRef, 'ethiopian-efootball-standings');
               } else if (activeTab === 'stats') {
                 handleExport(statsExportRef, 'ethiopian-efootball-player-status-and-stats');
+              } else if (activeTab === 'player_reveal') {
+                handleExport(
+                  playerRevealExportRef,
+                  `ethiopian-efootball-player-reveal-${selectedRevealPlayer?.user || 'competitor'}`
+                );
+              } else if (activeTab === 'total_roster') {
+                handleExport(totalRosterExportRef, 'ethiopian-efootball-total-registered-players');
               }
             }}
             className="flex items-center gap-2 rounded-xl border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-4 py-2 text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(234,255,40,0.4)] active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
@@ -421,6 +457,32 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
 
       {/* Tabs navigation */}
       <div className="flex flex-wrap md:flex-nowrap gap-2 mb-6 border-b border-[#3ce7ff]/15 pb-3 w-full">
+        <button
+          type="button"
+          onClick={() => setActiveTab('player_reveal')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+            activeTab === 'player_reveal'
+              ? 'bg-[#eaff28] text-[#050842] font-black shadow-md'
+              : 'border border-[#eaff28]/40 bg-[#071360] text-[#eaff28] hover:border-[#eaff28]'
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5 text-[#eaff28] stroke-[2.5]" />
+          <span>New Player Reveal</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('total_roster')}
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
+            activeTab === 'total_roster'
+              ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
+              : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
+          }`}
+        >
+          <Users className="h-3.5 w-3.5" />
+          <span>Total Registered Players</span>
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveTab('stats')}
@@ -1498,6 +1560,131 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
               biggestBlowout={biggestBlowout}
               outcomeStats={outcomeStats}
             />
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 7. NEW PLAYER REGISTRATION REVEAL POSTER EXPORT TARGET                    */}
+      {/* ========================================================================= */}
+      {activeTab === 'player_reveal' && (
+        <div className="space-y-4">
+          {/* Player Selector Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#05093e] p-3.5 rounded-xl border border-[#eaff28]/40 shadow-lg">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <Sparkles className="h-4 w-4 text-[#eaff28]" />
+                <span>Select Competitor to Reveal:</span>
+              </span>
+
+              {players.length > 0 ? (
+                <select
+                  value={selectedRevealPlayer?.id || ''}
+                  onChange={(e) => setSelectedRevealPlayerId(e.target.value)}
+                  className="rounded-lg border border-[#3ce7ff]/50 bg-[#071360] px-3 py-1.5 text-xs font-bold text-white focus:border-[#eaff28] focus:outline-none cursor-pointer"
+                >
+                  {players.map((p, idx) => (
+                    <option key={p.id} value={p.id} className="bg-[#071056] text-white">
+                      #{idx + 1} &middot; {p.team} (@{p.user})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-xs text-[#8e9bd4] italic">No players registered yet</span>
+              )}
+            </div>
+
+            {selectedRevealPlayer && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-mono text-[#3ce7ff] hidden sm:inline">
+                  Contender #{selectedRevealPlayerNumber} of {players.length}
+                </span>
+                <button
+                  type="button"
+                  disabled={isExporting}
+                  onClick={() =>
+                    handleExport(
+                      playerRevealExportRef,
+                      `ethiopian-efootball-player-reveal-${selectedRevealPlayer.user}`
+                    )
+                  }
+                  className="flex items-center gap-1.5 rounded-lg border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="h-3.5 w-3.5 stroke-[2.5]" />
+                  <span>Download Reveal PNG</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Export Canvas Preview */}
+          <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
+            {players.length === 0 ? (
+              <div className="rounded-2xl border-2 border-dashed border-[#3ce7ff]/30 bg-[#050842]/40 p-12 text-center">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#3ce7ff]/40 bg-[#071360] text-[#3ce7ff]">
+                  <Sparkles className="h-7 w-7" />
+                </div>
+                <h4 className="font-sports text-xl font-black text-white mt-3">
+                  NO PLAYERS TO REVEAL
+                </h4>
+                <p className="text-xs text-[#b9c4f0] mt-1">
+                  Once competitors register, select them here to download individual reveal announcement cards for Telegram and socials.
+                </p>
+              </div>
+            ) : selectedRevealPlayer ? (
+              <div className="w-[1200px] mx-auto">
+                <PlayerRevealExportCard
+                  player={selectedRevealPlayer}
+                  totalPlayers={players.length}
+                  playerNumber={selectedRevealPlayerNumber}
+                  tournamentFormat={tournamentFormat}
+                  cardRef={playerRevealExportRef}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 8. TOTAL REGISTERED PLAYERS ROSTER POSTER EXPORT TARGET                  */}
+      {/* ========================================================================= */}
+      {activeTab === 'total_roster' && (
+        <div className="space-y-4">
+          {/* Quick Info & Action Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#05093e] p-3.5 rounded-xl border border-[#3ce7ff]/40 shadow-lg">
+            <div className="flex items-center gap-2 text-xs text-[#b9c4f0]">
+              <Users className="h-4 w-4 text-[#3ce7ff]" />
+              <span>
+                Total Roster Poster &middot; <strong className="text-white">{players.length} Competitors</strong> registered across{' '}
+                <strong className="text-[#eaff28]">
+                  {new Set(players.map((p) => p.team.trim().toLowerCase())).size} Clubs
+                </strong>
+              </span>
+            </div>
+
+            <button
+              type="button"
+              disabled={isExporting}
+              onClick={() =>
+                handleExport(totalRosterExportRef, 'ethiopian-efootball-total-registered-players')
+              }
+              className="flex items-center gap-1.5 rounded-lg border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-3.5 py-1.5 text-xs font-black uppercase tracking-wider shadow-md transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5 stroke-[2.5]" />
+              <span>Download Total Roster PNG</span>
+            </button>
+          </div>
+
+          {/* Export Canvas Preview */}
+          <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
+            <div className="w-[1240px] mx-auto">
+              <TotalRosterExportCard
+                players={players}
+                tournamentFormat={tournamentFormat}
+                cardRef={totalRosterExportRef}
+              />
+            </div>
           </div>
         </div>
       )}
