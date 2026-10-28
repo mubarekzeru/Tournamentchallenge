@@ -56,7 +56,7 @@ export const Hero: React.FC<HeroProps> = ({
 
   return (
     <section id="challenge" className="relative pt-3 sm:pt-5 pb-4 sm:pb-6 border-b border-[#3ce7ff]/20 scroll-mt-[105px] w-full px-2 sm:px-4 font-efootball-stencil">
-      <div className="mx-auto max-w-4xl text-center">
+      <div className="mx-auto max-w-4xl md:max-w-5xl lg:max-w-6xl text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-[#eaff28]/40 bg-[#071056]/80 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[#eaff28] font-efootball-stencil">
           <span className="h-1.5 w-1.5 rounded-full bg-[#eaff28] animate-pulse" />
           Season One · Official Championship
@@ -66,12 +66,12 @@ export const Hero: React.FC<HeroProps> = ({
           eFootball tournament <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#3ce7ff] via-white to-[#eaff28]">challenge</span>
         </h1>
 
-        <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#c5cef9] max-w-xl mx-auto font-efootball-stencil">
+        <p className="mt-2 text-xs sm:text-sm leading-relaxed text-[#c5cef9] max-w-xl md:max-w-2xl mx-auto font-efootball-stencil">
           {formatDescription}
         </p>
 
         {/* Quick Badges */}
-        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 font-efootball-stencil">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-2 md:gap-3 font-efootball-stencil w-full md:max-w-3xl mx-auto">
           <div className="flex items-center gap-1.5 rounded-full border border-[#3ce7ff]/50 bg-[#071056] px-3 py-1 text-xs font-bold text-[#3ce7ff]">
             <Users className="h-3.5 w-3.5" />
             <span>{players.length} PLAYERS</span>
@@ -110,7 +110,7 @@ export const Hero: React.FC<HeroProps> = ({
 
         {/* Match Starts Soon Announcement Banner when no players are registered */}
         {players.length === 0 && (
-          <div className="mt-4 mx-auto max-w-lg rounded-2xl border-2 border-[#eaff28] bg-gradient-to-r from-[#071056] via-[#0d1872] to-[#071056] p-4 text-center shadow-[0_0_35px_rgba(234,255,40,0.3)] font-efootball-stencil">
+          <div className="mt-4 mx-auto max-w-lg md:max-w-2xl lg:max-w-3xl rounded-2xl border-2 border-[#eaff28] bg-gradient-to-r from-[#071056] via-[#0d1872] to-[#071056] p-4 sm:p-5 text-center shadow-[0_0_35px_rgba(234,255,40,0.3)] font-efootball-stencil w-full">
             <div className="inline-flex items-center gap-2 rounded-full bg-[#eaff28] px-3 py-1 text-xs font-black uppercase text-[#050842] shadow-sm">
               <Clock className="h-3.5 w-3.5" />
               <span>Season Kickoff Pending</span>
@@ -126,7 +126,7 @@ export const Hero: React.FC<HeroProps> = ({
 
         {/* Live Leaderboard Teaser */}
         {leader && leader.played > 0 && (
-          <div className="mt-4 mx-auto max-w-md rounded-xl border border-[#3ce7ff]/30 bg-gradient-to-r from-[#071056]/80 via-[#0d1675]/80 to-[#071056]/80 p-2.5 shadow-lg font-efootball-stencil">
+          <div className="mt-4 mx-auto max-w-md md:max-w-2xl lg:max-w-3xl rounded-xl border border-[#3ce7ff]/30 bg-gradient-to-r from-[#071056]/80 via-[#0d1675]/80 to-[#071056]/80 p-2.5 sm:p-3.5 shadow-lg font-efootball-stencil w-full">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eaff28] text-[10px] font-bold text-[#050842]">

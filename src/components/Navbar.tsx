@@ -142,10 +142,10 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
 
-        {/* Navigation tabs Bar: Clear gap between tabs, zero overlap on mobile */}
+        {/* Navigation tabs Bar: Clear gap between tabs on mobile, fully fitted across desktop */}
         <nav
           aria-label="Tournament navigation"
-          className="flex w-full items-stretch justify-start text-xs font-bold uppercase tracking-wider pb-1 pt-0.5 gap-2 sm:gap-3 overflow-x-auto scrollbar-none no-scrollbar flex-nowrap px-1 sm:px-2 scroll-smooth"
+          className="flex w-full items-stretch justify-start md:justify-between text-xs font-bold uppercase tracking-wider pb-1 pt-0.5 gap-2 sm:gap-2.5 md:gap-3 overflow-x-auto md:overflow-visible scrollbar-none no-scrollbar flex-nowrap px-1 sm:px-2 scroll-smooth"
         >
           {tabs.map((tab) => {
             const isActive = activeSection === tab.id;
@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ref={isActive ? activeTabRef : null}
                 type="button"
                 onClick={() => onNavigateSection(tab.id)}
-                className={`w-auto shrink-0 whitespace-nowrap border-b-2 transition-all pb-1.5 pt-1 px-3 sm:px-3.5 rounded-t-lg font-sports tracking-normal cursor-pointer ${
+                className={`w-auto md:w-full shrink-0 md:shrink md:flex-1 text-center flex items-center justify-center whitespace-nowrap border-b-2 transition-all pb-1.5 pt-1 px-3 sm:px-3.5 md:px-2 rounded-t-lg font-sports tracking-normal cursor-pointer ${
                   isActive
                     ? 'border-[#eaff28] text-[#eaff28] bg-[#eaff28]/15 shadow-[0_2px_12px_rgba(234,255,40,0.3)] font-black'
                     : 'border-transparent text-[#bcc7fa] hover:border-[#3ce7ff]/60 hover:text-white hover:bg-white/5 font-semibold'

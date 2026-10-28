@@ -97,15 +97,15 @@ export const LeagueTable: React.FC<LeagueTableProps> = ({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="relative">
+        <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto md:justify-end">
+          <div className="relative w-full sm:w-56 md:w-72 lg:w-80">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8e9bd4]" />
             <input
               type="search"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search player or team..."
-              className="w-44 sm:w-56 rounded-full border border-[#3ce7ff]/60 bg-[#060a48] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#8e9bd4] focus:border-[#eaff28] focus:outline-none"
+              className="w-full rounded-full border border-[#3ce7ff]/60 bg-[#060a48] py-1.5 pl-8 pr-3 text-xs text-white placeholder-[#8e9bd4] focus:border-[#eaff28] focus:outline-none"
             />
           </div>
 

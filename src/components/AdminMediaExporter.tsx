@@ -420,11 +420,11 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
       </div>
 
       {/* Tabs navigation */}
-      <div className="flex flex-wrap gap-2 mb-6 border-b border-[#3ce7ff]/15 pb-3">
+      <div className="flex flex-wrap md:flex-nowrap gap-2 mb-6 border-b border-[#3ce7ff]/15 pb-3 w-full">
         <button
           type="button"
           onClick={() => setActiveTab('stats')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
             activeTab === 'stats'
               ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
               : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
@@ -437,7 +437,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('results')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
             activeTab === 'results'
               ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
               : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
@@ -450,7 +450,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('upcoming')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
             activeTab === 'upcoming'
               ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
               : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
@@ -463,7 +463,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('fixtures')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
             activeTab === 'fixtures'
               ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
               : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
@@ -477,7 +477,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('bracket')}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+            className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
               activeTab === 'bracket'
                 ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
                 : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'
@@ -491,7 +491,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
         <button
           type="button"
           onClick={() => setActiveTab('standings')}
-          className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+          className={`flex-1 flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition-all ${
             activeTab === 'standings'
               ? 'bg-[#3ce7ff] text-[#050842] font-black shadow-md'
               : 'border border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff]'

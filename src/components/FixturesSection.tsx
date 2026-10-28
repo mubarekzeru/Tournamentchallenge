@@ -285,7 +285,7 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
     return (
       <div
         key={fixture.id}
-        className={`group relative flex items-center justify-between rounded-lg sm:rounded-xl border px-1 py-1 sm:px-2 sm:py-1.5 transition-all ${
+        className={`group relative flex items-center justify-between rounded-lg sm:rounded-xl border px-1.5 py-1 sm:px-2.5 sm:py-1.5 md:px-4 md:py-2.5 transition-all w-full ${
           isPostponed
             ? 'border-amber-400/40 bg-[#0d104a]/85 hover:border-amber-400 hover:bg-[#121658]'
             : 'border-[#3ce7ff]/20 bg-[#080c50]/75 hover:border-[#3ce7ff]/60 hover:bg-[#0d1466]'
@@ -293,8 +293,8 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
       >
         {/* Round Badge inside row on larger screens */}
         {isGroupStage && (
-          <div className="shrink-0 hidden md:block mr-1.5">
-            <span className="rounded border border-[#3ce7ff]/30 bg-[#040632] px-1 py-0.5 text-[8.5px] font-mono font-bold text-[#3ce7ff]">
+          <div className="shrink-0 hidden md:block mr-2">
+            <span className="rounded border border-[#3ce7ff]/30 bg-[#040632] px-1.5 py-0.5 text-[8.5px] font-mono font-bold text-[#3ce7ff]">
               {fixture.isKnockout
                 ? (fixture.knockoutStage === 'final' ? 'Final' : fixture.stage?.split(' ')[0] || 'KO')
                 : `R${fixture.round || fixture.matchday}`}
@@ -303,7 +303,7 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
         )}
 
         {/* Home & Away Grid: Interactive player triggers to pop up Player Dossier Modal */}
-        <div className="grid w-full flex-1 grid-cols-[1fr_auto_1fr] items-center gap-1 sm:gap-2 min-w-0">
+        <div className="grid w-full flex-1 grid-cols-[1fr_auto_1fr] items-center gap-1.5 sm:gap-3 md:gap-4 min-w-0">
           {/* Home Player Trigger */}
           <button
             type="button"
@@ -437,7 +437,7 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
           )}
 
           {/* Search Bar */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:w-64 md:w-80 lg:w-96">
             <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#8e9bd4]" />
             <input
               id="schedule-search"
@@ -476,7 +476,7 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
       />
 
       {/* Summary line: MUST only count listed matches and use correct words */}
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-none sm:rounded-xl border-x-0 sm:border-x border-y border-[#3ce7ff]/20 bg-[#071056]/60 px-3 py-2 text-xs text-[#b9c4f0] w-full">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-none sm:rounded-xl border-x-0 sm:border-x border-y border-[#3ce7ff]/20 bg-[#071056]/60 px-3 md:px-4 py-2 md:py-2.5 text-xs text-[#b9c4f0] w-full">
         <span>
           {isGroupStage ? (
             isAll ? (

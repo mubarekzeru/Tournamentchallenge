@@ -153,11 +153,11 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
         </div>
 
         {/* View Mode Pills: All | Past Games | Upcoming Matches (Full Fit Edge to Edge) */}
-        <div className="flex items-center justify-between gap-1 bg-[#040632] p-1 rounded-xl border border-[#3ce7ff]/25 text-xs font-bold w-full sm:w-auto">
+        <div className="flex items-center justify-between gap-1 bg-[#040632] p-1 rounded-xl border border-[#3ce7ff]/25 text-xs font-bold w-full sm:w-auto md:min-w-[440px]">
           <button
             type="button"
             onClick={() => onSelectFilter('all')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1.5 text-[10.5px] sm:text-[11px] transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1.5 text-[10.5px] sm:text-[11px] transition-all ${
               currentFilter === 'all'
                 ? 'bg-[#3ce7ff] text-[#050842] shadow-[0_0_12px_rgba(60,231,255,0.4)] font-black'
                 : 'text-[#b9c4f0] hover:text-white hover:bg-[#071056]'
@@ -172,7 +172,7 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
           <button
             type="button"
             onClick={() => onSelectFilter('past')}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] transition-all ${
               currentFilter === 'past'
                 ? 'bg-emerald-400 text-[#050842] shadow-[0_0_12px_rgba(52,211,153,0.4)] font-black'
                 : 'text-[#b9c4f0] hover:text-white hover:bg-[#071056]'
@@ -189,7 +189,7 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
           <button
             type="button"
             onClick={() => onSelectFilter('upcoming')}
-            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] transition-all ${
+            className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg px-2 sm:px-2.5 py-1 text-[11px] transition-all ${
               currentFilter === 'upcoming'
                 ? 'bg-[#eaff28] text-[#050842] shadow-[0_0_12px_rgba(234,255,40,0.4)] font-black'
                 : 'text-[#b9c4f0] hover:text-white hover:bg-[#071056]'
@@ -316,7 +316,7 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
         </div>
       ) : (
         /* League Format: Specific Matchdays Horizontal Carousel Bar */
-        <div className="mt-3 relative flex items-center">
+        <div className="mt-3 relative flex items-center w-full">
           <button
             type="button"
             onClick={scrollLeft}
@@ -328,7 +328,7 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
 
           <div
             ref={scrollContainerRef}
-            className="flex items-center gap-2 overflow-x-auto py-1 scrollbar-none scroll-smooth w-full"
+            className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto py-1 scrollbar-none scroll-smooth w-full md:justify-between"
           >
             {matchdayStats.map((stat) => {
               const isSelected = currentFilter === stat.day;
@@ -339,7 +339,7 @@ export const MatchdayHistory: React.FC<MatchdayHistoryProps> = ({
                   key={stat.day}
                   type="button"
                   onClick={() => onSelectFilter(stat.day)}
-                  className={`group shrink-0 flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs font-sports uppercase transition-all border ${
+                  className={`group shrink-0 md:shrink md:flex-1 flex items-center justify-center gap-1.5 sm:gap-2 rounded-xl px-2.5 sm:px-3 py-1.5 text-xs font-sports uppercase transition-all border ${
                     isSelected
                       ? 'border-[#eaff28] bg-gradient-to-r from-[#eaff28] to-[#99ff33] text-[#050842] shadow-[0_0_15px_rgba(234,255,40,0.4)] font-black scale-105'
                       : isNextUp
