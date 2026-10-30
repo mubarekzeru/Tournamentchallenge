@@ -51,6 +51,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   const tabs: { id: SectionId; label: string }[] = [
     { id: 'hub', label: 'Tournament Hub' },
+    { id: 'players', label: 'Players' },
     { id: 'fixtures', label: 'Fixtures' },
     ...(hasKnockout
       ? [

@@ -1,6 +1,8 @@
 import React from 'react';
 import { Users, Trophy, PlayCircle, Sparkles, Clock } from 'lucide-react';
-import { Player, MatchResult, TournamentFormat, Fixture, GroupStageConfig } from '../types/tournament';
+import { Player, MatchResult, TournamentFormat, Fixture, GroupStageConfig, MatchClockConfig } from '../types/tournament';
+import { CountryMatchClockBanner } from './CountryMatchClockBanner';
+import { getDefaultClockConfig } from '../utils/countryClock';
 
 interface HeroProps {
   players: Player[];
@@ -12,6 +14,9 @@ interface HeroProps {
   config?: GroupStageConfig;
   showCountdown?: boolean;
   countdownTargetDate?: string;
+  matchClockConfig?: MatchClockConfig;
+  isAdmin?: boolean;
+  onNavigateToAdminClock?: () => void;
   onToggleShowCountdown?: () => void;
   onScrollToFixtures: () => void;
   onScrollToTable: () => void;
@@ -29,12 +34,20 @@ export const Hero: React.FC<HeroProps> = ({
   config,
   showCountdown = true,
   countdownTargetDate,
+  matchClockConfig,
+  isAdmin = false,
+  onNavigateToAdminClock,
   onToggleShowCountdown,
   onScrollToFixtures,
   onScrollToTable,
   onOpenAIScout,
   onSelectPlayer,
 }) => {
+  const effectiveClockConfig: MatchClockConfig = matchClockConfig || {
+    ...getDefaultClockConfig(),
+    enabled: showCountdown,
+    startDate: countdownTargetDate || getDefaultClockConfig().startDate,
+  };
   const leader = players[0];
   const completedMatches = results.filter((r) => !r.isPostponed).length;
   const postponedMatches = results.filter((r) => r.isPostponed).length;
@@ -107,6 +120,18 @@ export const Hero: React.FC<HeroProps> = ({
             </button>
           )}
         </div>
+
+        {/* Live Country Clock, Match Starting Date & Ending Due Date Countdown Banner */}
+        {effectiveClockConfig.enabled && (
+          <div className="mt-5">
+            <CountryMatchClockBanner
+              config={effectiveClockConfig}
+              isAdmin={isAdmin}
+              onNavigateToAdminClock={onNavigateToAdminClock}
+              onScrollToFixtures={onScrollToFixtures}
+            />
+          </div>
+        )}
 
         {/* Match Starts Soon Announcement Banner when no players are registered */}
         {players.length === 0 && (

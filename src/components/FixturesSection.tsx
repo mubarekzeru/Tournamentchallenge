@@ -11,6 +11,9 @@ import {
   Filter,
   Swords,
   Trophy,
+  Lock,
+  Unlock,
+  Users,
 } from 'lucide-react';
 import { Fixture, MatchResult, Player, TournamentFormat, GroupStageConfig } from '../types/tournament';
 import { MatchdayHistory, MatchdayFilter } from './MatchdayHistory';
@@ -22,12 +25,14 @@ interface FixturesSectionProps {
   results: MatchResult[];
   players: Player[];
   isAdmin: boolean;
+  isRegistrationOpen?: boolean;
   tournamentFormat?: TournamentFormat;
   config?: GroupStageConfig;
   onSelectFixtureToRecord: (fixture: Fixture, existingResult?: MatchResult) => void;
   onDeleteResult: (resultId: string) => void;
   onNavigateToBracket?: () => void;
   onSelectPlayer?: (player: Player) => void;
+  onToggleRegistration?: (ended?: boolean) => void;
 }
 
 // Clean Club Name & Username Display: Club name on top, player username strictly under it on its own line
@@ -61,14 +66,19 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
   results,
   players,
   isAdmin,
+  isRegistrationOpen = false,
   tournamentFormat = 'league_double',
   onSelectFixtureToRecord,
   onDeleteResult,
   onNavigateToBracket,
   onSelectPlayer,
+  onToggleRegistration,
 }) => {
   // CRITICAL: NEVER show placeholder matches or unknown matchups
   const fixtures = useMemo(() => filterRealMatchesOnly(rawFixtures), [rawFixtures]);
+
+  // Upcoming matches are hidden while player registration is active and no matches played
+  const isScheduleLocked = isRegistrationOpen && results.length === 0;
 
   const isKnockout =
     tournamentFormat === 'knockout' ||
@@ -478,7 +488,11 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
       {/* Summary line: MUST only count listed matches and use correct words */}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-none sm:rounded-xl border-x-0 sm:border-x border-y border-[#3ce7ff]/20 bg-[#071056]/60 px-3 md:px-4 py-2 md:py-2.5 text-xs text-[#b9c4f0] w-full">
         <span>
-          {isGroupStage ? (
+          {isScheduleLocked ? (
+            <span className="text-[#eaff28] font-bold">
+              Upcoming matches confidential · Revealed after registration concludes
+            </span>
+          ) : isGroupStage ? (
             isAll ? (
               knockoutMatchesCount > 0
                 ? `${groupMatchesCount} group matches · ${knockoutMatchesCount} knockout matches (${fixtures.length} total)`
@@ -505,13 +519,56 @@ export const FixturesSection: React.FC<FixturesSectionProps> = ({
           )}
         </span>
         <span className="text-[10px] uppercase font-bold text-[#3ce7ff]">
-          {filteredFixtures.length} Real Matches
+          {isScheduleLocked ? `${players.length} Competitors Enlisted` : `${filteredFixtures.length} Real Matches`}
         </span>
       </div>
 
       {/* Fixtures List: Fully edge-to-edge without gaps */}
       <div className="mt-3 overflow-hidden rounded-none sm:rounded-2xl border-x-0 sm:border-x border-y border-[#3ce7ff]/30 bg-gradient-to-b from-[#0a0f52]/90 to-[#050842]/95 shadow-xl w-full">
-        {groupedSections.length > 0 ? (
+        {isScheduleLocked ? (
+          <div className="p-6 sm:p-10 text-center relative overflow-hidden">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(60,231,255,0.08)_0%,transparent_70%)] pointer-events-none" />
+            <div className="relative z-10 max-w-xl mx-auto flex flex-col items-center">
+              <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-2xl border-2 border-[#3ce7ff] bg-gradient-to-br from-[#071360] to-[#01062b] text-[#3ce7ff] shadow-[0_0_30px_rgba(60,231,255,0.35)]">
+                <Lock className="h-8 w-8 sm:h-10 sm:w-10 text-[#3ce7ff]" />
+              </div>
+
+              <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-400/50 bg-emerald-500/10 px-3.5 py-1 text-[11px] font-mono font-bold text-emerald-300">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span>REGISTRATION IN PROGRESS · {players.length} COMPETITORS ENLISTED</span>
+              </div>
+
+              <h3 className="font-efootball-stencil mt-3 text-xl sm:text-2xl md:text-3xl font-black text-white tracking-wide">
+                UPCOMING MATCHES HIDDEN DURING REGISTRATION
+              </h3>
+
+              <p className="mt-2 text-xs sm:text-sm text-[#b9c4f0] leading-relaxed">
+                Player registration is currently active. In accordance with Ethiopian eFootball tournament protocol, upcoming match pairings, schedule, and kickoff times are kept confidential and will be revealed immediately after player registration has concluded.
+              </p>
+
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href="#registered-players"
+                  className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#3ce7ff] to-[#00b4d8] px-5 py-2.5 text-xs sm:text-sm font-black text-[#050842] shadow-[0_0_20px_rgba(60,231,255,0.3)] hover:scale-105 active:scale-95 transition-all"
+                >
+                  <Users className="h-4 w-4" />
+                  <span>View Registered Players ({players.length})</span>
+                </a>
+
+                {isAdmin && onToggleRegistration && (
+                  <button
+                    type="button"
+                    onClick={() => onToggleRegistration(true)}
+                    className="flex items-center gap-2 rounded-xl border border-[#eaff28] bg-[#eaff28]/15 px-4 py-2.5 text-xs sm:text-sm font-bold text-[#eaff28] hover:bg-[#eaff28] hover:text-[#050842] transition-all"
+                  >
+                    <Unlock className="h-4 w-4" />
+                    <span>End Registration & Reveal Matches</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : groupedSections.length > 0 ? (
           <div className="divide-y divide-[#3ce7ff]/15">
             {groupedSections.map((section) => (
               <div key={section.key} className="p-1.5 sm:p-3 md:p-4">

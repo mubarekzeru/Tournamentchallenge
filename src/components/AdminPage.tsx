@@ -35,6 +35,11 @@ import {
   LayoutGrid,
   Phone,
   Send,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Check,
+  Smartphone,
 } from 'lucide-react';
 import {
   Player,
@@ -42,6 +47,7 @@ import {
   MatchResult,
   TournamentFormat,
   GroupStageConfig,
+  MatchClockConfig,
 } from '../types/tournament';
 import { ADMIN_PASSCODE } from '../data/tournamentData';
 import { getNextScheduledMatchday } from '../utils/standings';
@@ -54,6 +60,17 @@ import {
 import { AdminMediaExporter } from './AdminMediaExporter';
 import { TournamentStatsSection } from './TournamentStatsSection';
 import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
+import { CountryMatchClockBanner } from './CountryMatchClockBanner';
+import {
+  getDefaultClockConfig,
+  toDatetimeLocal,
+  getMatchClockStatus,
+  formatEthiopiaTime,
+  formatLocalTime,
+  buildMatchdaySchedule,
+  formatPhoneTime,
+  formatPhoneTimerDigits,
+} from '../utils/countryClock';
 
 interface AdminPageProps {
   isAdmin: boolean;
@@ -66,6 +83,7 @@ interface AdminPageProps {
   groupStageConfig?: GroupStageConfig;
   showCountdown?: boolean;
   countdownTargetDate?: string;
+  matchClockConfig?: MatchClockConfig;
   activeFixtureToEdit: { fixture: Fixture; existingResult?: MatchResult } | null;
   onClearActiveFixture: () => void;
   onAdminLogin: () => void;
@@ -81,10 +99,12 @@ interface AdminPageProps {
   onUpdateGroupConfig?: (config: GroupStageConfig) => void;
   onToggleShowCountdown?: (val?: boolean) => void;
   onUpdateCountdownTarget?: (dateStr: string) => void;
+  onUpdateMatchClockConfig?: (config: MatchClockConfig) => void;
   onPurgeOldData?: () => void;
   onDeleteAllPlayers?: () => void;
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
   onSelectPlayer?: (player: Player) => void;
+  onToggleRegistration?: (ended?: boolean) => void;
 }
 
 export const AdminPage: React.FC<AdminPageProps> = ({
@@ -98,6 +118,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   groupStageConfig = DEFAULT_GROUP_CONFIG,
   showCountdown = true,
   countdownTargetDate,
+  matchClockConfig,
   activeFixtureToEdit,
   onClearActiveFixture,
   onAdminLogin,
@@ -114,9 +135,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   onUpdateGroupConfig,
   onToggleShowCountdown,
   onUpdateCountdownTarget,
+  onUpdateMatchClockConfig,
   onPurgeOldData,
   onToast,
   onSelectPlayer,
+  onToggleRegistration,
 }) => {
   const passToMatch = activePasscode || ADMIN_PASSCODE;
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
@@ -188,28 +211,146 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     return getNextScheduledMatchday(fixtures, results);
   }, [fixtures, results]);
 
-  const targetDateObj = React.useMemo(() => {
-    if (countdownTargetDate) {
-      const parsed = new Date(countdownTargetDate);
-      if (!isNaN(parsed.getTime())) return parsed;
-    }
-    const def = new Date();
-    def.setDate(def.getDate() + 2);
-    def.setHours(19, 0, 0, 0);
-    return def;
-  }, [countdownTargetDate]);
+  // Active Match Clock Configuration for country clock and dual-phase countdown
+  const effectiveClockConfig: MatchClockConfig = React.useMemo(() => {
+    if (matchClockConfig) return matchClockConfig;
+    const def = getDefaultClockConfig();
+    return {
+      ...def,
+      enabled: showCountdown ?? true,
+      startDate: countdownTargetDate || def.startDate,
+    };
+  }, [matchClockConfig, showCountdown, countdownTargetDate]);
 
-  const formatToDatetimeLocal = (d: Date) => {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const [clockDraft, setClockDraft] = useState<MatchClockConfig>(effectiveClockConfig);
+
+  React.useEffect(() => {
+    setClockDraft(effectiveClockConfig);
+  }, [effectiveClockConfig]);
+
+  // Live ticking state for Admin country clock display
+  const [adminClockNow, setAdminClockNow] = useState<Date>(new Date());
+  React.useEffect(() => {
+    const timer = setInterval(() => setAdminClockNow(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Quick Copy & Accordion collapse states
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [isRosterExpanded, setIsRosterExpanded] = useState<boolean>(true);
+  const [isClockAdjustmentsOpen, setIsClockAdjustmentsOpen] = useState<boolean>(true);
+
+  const handleCopy = (text: string, key: string, label?: string) => {
+    try {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2000);
+      if (onToast) onToast(`Copied ${label || text} to clipboard!`, 'info');
+    } catch {
+      if (onToast) onToast('Failed to copy to clipboard', 'error');
+    }
   };
 
-  const handleApplyPresetHours = (hoursToAdd: number) => {
-    const d = new Date();
-    d.setTime(d.getTime() + hoursToAdd * 3600 * 1000);
-    if (onUpdateCountdownTarget) {
-      onUpdateCountdownTarget(d.toISOString());
+  const handleUpdateClock = (updates: Partial<MatchClockConfig>, toastMsg?: string) => {
+    const nextConfig: MatchClockConfig = {
+      ...clockDraft,
+      ...updates,
+    };
+    setClockDraft(nextConfig);
+    if (onUpdateMatchClockConfig) {
+      onUpdateMatchClockConfig(nextConfig);
     }
+    // Also sync backwards-compatible props if present
+    if (updates.enabled !== undefined && onToggleShowCountdown) {
+      onToggleShowCountdown(updates.enabled);
+    }
+    if (updates.startDate && onUpdateCountdownTarget) {
+      onUpdateCountdownTarget(updates.startDate);
+    }
+    if (toastMsg && onToast) {
+      onToast(toastMsg, 'success');
+    }
+  };
+
+  const handleSelectMatchdayForClock = (md: number) => {
+    const today = clockDraft.matchDate || new Date().toISOString().slice(0, 10);
+    const startT = clockDraft.startTime || '21:00';
+    const endT = clockDraft.endTime || '23:00';
+    const { startDate, endDate } = buildMatchdaySchedule(today, startT, endT);
+    handleUpdateClock(
+      {
+        matchday: md,
+        matchdayLabel: `Matchday ${md}`,
+        matchDate: today,
+        startTime: startT,
+        endTime: endT,
+        startDate,
+        endDate,
+        title: `MATCHDAY ${md} KICKOFF & DUE DATE CLOCK`,
+        subtitle: `Matchday ${md} window runs ${startT} — ${endT}. Complete all scheduled games before closing deadline.`,
+      },
+      `Clock configured for Matchday ${md}!`
+    );
+  };
+
+  const handleApplyMatchdayScheduleTimes = (
+    startTime: string,
+    endTime: string,
+    targetDateStr?: string
+  ) => {
+    const md = clockDraft.matchday || 1;
+    const dateStr = targetDateStr || clockDraft.matchDate || new Date().toISOString().slice(0, 10);
+    const { startDate, endDate } = buildMatchdaySchedule(dateStr, startTime, endTime);
+    handleUpdateClock(
+      {
+        matchday: md,
+        matchdayLabel: `Matchday ${md}`,
+        matchDate: dateStr,
+        startTime,
+        endTime,
+        startDate,
+        endDate,
+        title: `MATCHDAY ${md} KICKOFF & DUE DATE CLOCK`,
+        subtitle: `Matchday ${md} window runs ${startTime} — ${endTime}. Complete all scheduled games before closing deadline.`,
+      },
+      `Matchday ${md} set: ${startTime} to ${endTime}!`
+    );
+  };
+
+  const handleApplyStartPreset = (type: 'now' | '30m' | '2h' | 'tomorrow19' | '2d' | '3d') => {
+    const base = new Date();
+    if (type === 'now') {
+      base.setSeconds(0, 0);
+    } else if (type === '30m') {
+      base.setTime(base.getTime() + 30 * 60 * 1000);
+    } else if (type === '2h') {
+      base.setTime(base.getTime() + 2 * 3600 * 1000);
+    } else if (type === 'tomorrow19') {
+      base.setDate(base.getDate() + 1);
+      base.setHours(19, 0, 0, 0);
+    } else if (type === '2d') {
+      base.setDate(base.getDate() + 2);
+      base.setHours(19, 0, 0, 0);
+    } else if (type === '3d') {
+      base.setDate(base.getDate() + 3);
+      base.setHours(19, 0, 0, 0);
+    }
+    const iso = base.toISOString();
+    // Ensure end date is after start date
+    const currentEnd = new Date(clockDraft.endDate);
+    let newEndIso = clockDraft.endDate;
+    if (currentEnd <= base) {
+      const newEnd = new Date(base.getTime() + 2 * 3600 * 1000);
+      newEndIso = newEnd.toISOString();
+    }
+    handleUpdateClock({ startDate: iso, endDate: newEndIso }, 'Match Starting Kickoff schedule updated!');
+  };
+
+  const handleApplyEndPreset = (hoursFromStart: number) => {
+    const start = new Date(clockDraft.startDate);
+    const validStart = !isNaN(start.getTime()) ? start : new Date();
+    const end = new Date(validStart.getTime() + hoursFromStart * 3600 * 1000);
+    handleUpdateClock({ endDate: end.toISOString() }, 'Ending Due Date schedule updated!');
   };
 
   React.useEffect(() => {
@@ -1030,12 +1171,47 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   <p className="mt-1 text-xs text-[#b9c4f0]">
                     Manage player profiles with official phone contact, Telegram coordinates, custom team identity, and device avatar photos.
                   </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-mono font-bold ${
+                        isRegistrationOpen
+                          ? 'border border-emerald-400/50 bg-emerald-500/15 text-emerald-300'
+                          : 'border border-[#3ce7ff]/40 bg-[#071360] text-[#3ce7ff]'
+                      }`}
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${isRegistrationOpen ? 'bg-emerald-400 animate-pulse' : 'bg-[#3ce7ff]'}`} />
+                      {isRegistrationOpen
+                        ? 'Registration Active · Upcoming Matches Hidden'
+                        : 'Registration Concluded · Upcoming Matches Revealed'}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2.5">
                   <span className="rounded-lg bg-[#050842] border border-[#3ce7ff]/30 px-3 py-1.5 text-[11px] font-mono text-[#3ce7ff]">
                     {players.length} Active Competitors
                   </span>
+
+                  {/* Toggle Registration Open / Ended */}
+                  {onToggleRegistration && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleRegistration(!isRegistrationOpen)}
+                      className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-extrabold uppercase tracking-wider transition-all border ${
+                        isRegistrationOpen
+                          ? 'border-amber-400/60 bg-amber-500/20 text-amber-300 hover:bg-amber-400 hover:text-[#050842] shadow-md'
+                          : 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-400 hover:text-[#050842] shadow-md'
+                      }`}
+                      title={
+                        isRegistrationOpen
+                          ? 'End player registration now to reveal upcoming match pairings and schedule'
+                          : 'Reopen player registration (upcoming matches will be hidden until ended)'
+                      }
+                    >
+                      {isRegistrationOpen ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
+                      <span>{isRegistrationOpen ? 'End Registration' : 'Reopen Registration'}</span>
+                    </button>
+                  )}
 
                   {/* Download Total Roster Poster Shortcut */}
                   <button
@@ -1086,149 +1262,199 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <UserPlus className="h-4 w-4" />
                     <span>Register New Player</span>
                   </button>
+
+                  {/* Collapse / Expand Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setIsRosterExpanded((prev) => !prev)}
+                    className="flex items-center gap-1.5 rounded-xl border border-[#3ce7ff]/40 bg-[#071360] px-3 py-2 text-xs font-bold text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#050842] transition-colors"
+                    title={isRosterExpanded ? 'Collapse roster list' : 'Expand roster list'}
+                  >
+                    <span>{isRosterExpanded ? 'Collapse' : 'Expand'}</span>
+                    {isRosterExpanded ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    )}
+                  </button>
                 </div>
               </div>
 
               {/* Roster Cards with Phone Number & Telegram Handle or Empty State */}
-              {players.length === 0 ? (
-                <div className="mt-5 rounded-2xl border-2 border-dashed border-[#3ce7ff]/30 bg-[#050842]/40 p-8 text-center">
-                  <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#3ce7ff]/40 bg-[#071360] text-[#3ce7ff] shadow-[0_0_20px_rgba(60,231,255,0.2)]">
-                    <Users className="h-7 w-7" />
+              {isRosterExpanded && (
+                players.length === 0 ? (
+                  <div className="mt-5 rounded-2xl border-2 border-dashed border-[#3ce7ff]/30 bg-[#050842]/40 p-8 text-center">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[#3ce7ff]/40 bg-[#071360] text-[#3ce7ff] shadow-[0_0_20px_rgba(60,231,255,0.2)]">
+                      <Users className="h-7 w-7" />
+                    </div>
+                    <h4 className="mt-3 font-sports text-xl text-white font-black">
+                      NO PLAYERS REGISTERED
+                    </h4>
+                    <p className="mx-auto mt-1 max-w-md text-xs text-[#b9c4f0]">
+                      The competitor roster is currently empty. The display page is showing <strong className="text-[#eaff28]">"Match Starts Soon"</strong>. Click <strong className="text-white">"Register New Player"</strong> above to add contestants.
+                    </p>
                   </div>
-                  <h4 className="mt-3 font-sports text-xl text-white font-black">
-                    NO PLAYERS REGISTERED
-                  </h4>
-                  <p className="mx-auto mt-1 max-w-md text-xs text-[#b9c4f0]">
-                    The competitor roster is currently empty. The display page is showing <strong className="text-[#eaff28]">"Match Starts Soon"</strong>. Click <strong className="text-white">"Register New Player"</strong> above to add contestants.
-                  </p>
-                </div>
-              ) : (
-                <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {players.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex flex-col justify-between rounded-xl border border-[#3ce7ff]/25 bg-[#050842] p-3.5 transition-all hover:border-[#3ce7ff] shadow-md group"
-                  >
-                    <div>
-                      {/* Top Header Row: Avatar, Team & Action Buttons */}
-                      <div className="flex items-start justify-between gap-2.5">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => onSelectPlayer?.(p)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') onSelectPlayer?.(p);
-                          }}
-                          className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer group/player hover:opacity-95 transition-opacity text-left focus:outline-none"
-                          title={`View ${p.team} (@${p.user}) player profile card`}
-                        >
-                          <img
-                            src={p.avatarUrl}
-                            alt={p.team}
-                            className="h-11 w-11 rounded-full border-2 border-[#3ce7ff] object-cover shrink-0 shadow-sm group-hover/player:border-[#eaff28] group-hover/player:scale-105 transition-all"
-                            referrerPolicy="no-referrer"
-                          />
-                          <div className="min-w-0 flex-1">
-                            <strong className="block text-xs sm:text-sm font-bold text-white truncate font-sports group-hover/player:text-[#eaff28] transition-colors">
-                              {p.team}
-                            </strong>
-                            <span className="block text-[10.5px] text-[#3ce7ff] font-mono truncate leading-tight mt-0.5">
-                              @{p.user}
-                            </span>
+                ) : (
+                  <div className="mt-5 grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {players.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex flex-col justify-between rounded-xl border border-[#3ce7ff]/25 bg-[#050842] p-3.5 transition-all hover:border-[#3ce7ff] shadow-md group"
+                    >
+                      <div>
+                        {/* Top Header Row: Avatar, Team & Action Buttons */}
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => onSelectPlayer?.(p)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') onSelectPlayer?.(p);
+                            }}
+                            className="flex items-center gap-2.5 min-w-0 flex-1 cursor-pointer group/player hover:opacity-95 transition-opacity text-left focus:outline-none"
+                            title={`View ${p.team} (@${p.user}) player profile card`}
+                          >
+                            <img
+                              src={p.avatarUrl}
+                              alt={p.team}
+                              className="h-11 w-11 rounded-full border-2 border-[#3ce7ff] object-cover shrink-0 shadow-sm group-hover/player:border-[#eaff28] group-hover/player:scale-105 transition-all"
+                              referrerPolicy="no-referrer"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <strong className="block text-xs sm:text-sm font-bold text-white truncate font-sports group-hover/player:text-[#eaff28] transition-colors">
+                                {p.team}
+                              </strong>
+                              <span className="block text-[10.5px] text-[#3ce7ff] font-mono truncate leading-tight mt-0.5">
+                                @{p.user}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const el = document.getElementById('admin-media-exporter');
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                                if (onToast) onToast(`Scroll to "New Player Reveal" below to download @${p.user}'s reveal image!`, 'info');
+                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#eaff28]/50 bg-[#071056] text-[#eaff28] hover:bg-[#eaff28] hover:text-[#08104e] transition-colors"
+                              title={`Download @${p.user} Player Reveal Announcement Poster`}
+                            >
+                              <Sparkles className="h-3.5 w-3.5" />
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => onOpenEditPlayer(p)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3ce7ff]/40 bg-[#071056] text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#08104e] transition-colors"
+                              title="Edit team, user, phone or telegram"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const el = document.getElementById('admin-media-exporter');
-                              if (el) el.scrollIntoView({ behavior: 'smooth' });
-                              if (onToast) onToast(`Scroll to "New Player Reveal" below to download @${p.user}'s reveal image!`, 'info');
-                            }}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#eaff28]/50 bg-[#071056] text-[#eaff28] hover:bg-[#eaff28] hover:text-[#08104e] transition-colors"
-                            title={`Download @${p.user} Player Reveal Announcement Poster`}
-                          >
-                            <Sparkles className="h-3.5 w-3.5" />
-                          </button>
+                        {/* Contact Channels Row: Telegram & Phone Number */}
+                        <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/15 space-y-1.5">
+                          {/* Telegram Handle */}
+                          <div className="flex items-center justify-between text-[10.5px] font-mono">
+                            <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
+                              <Send className="h-3 w-3 text-[#3ce7ff]" />
+                              <span>Telegram:</span>
+                            </span>
+                            <div className="flex items-center gap-1 min-w-0">
+                              <a
+                                href={`https://t.me/${(p.telegramUsername || p.user).replace(/^@/, '')}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-bold text-[#3ce7ff] truncate max-w-[120px] bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-2 py-0.5 rounded border border-[#3ce7ff]/30 transition-colors cursor-pointer"
+                                title={`Open Telegram profile: @${(p.telegramUsername || p.user).replace(/^@/, '')}`}
+                              >
+                                @{p.telegramUsername || p.user}
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleCopy(
+                                    `@${(p.telegramUsername || p.user).replace(/^@/, '')}`,
+                                    `tg-${p.id}`,
+                                    `@${(p.telegramUsername || p.user).replace(/^@/, '')}`
+                                  )
+                                }
+                                className="rounded p-1 text-[#3ce7ff] hover:bg-[#3ce7ff]/20 transition-colors shrink-0"
+                                title="Copy Telegram handle"
+                              >
+                                {copiedKey === `tg-${p.id}` ? (
+                                  <Check className="h-3 w-3 text-emerald-400" />
+                                ) : (
+                                  <Copy className="h-3 w-3" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
 
-                          <button
-                            type="button"
-                            onClick={() => onOpenEditPlayer(p)}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border border-[#3ce7ff]/40 bg-[#071056] text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#08104e] transition-colors"
-                            title="Edit team, user, phone or telegram"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                          </button>
+                          {/* Phone Number */}
+                          <div className="flex items-center justify-between text-[10.5px] font-mono">
+                            <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
+                              <Phone className="h-3 w-3 text-[#eaff28]" />
+                              <span>Phone:</span>
+                            </span>
+                            {p.phoneNumber ? (
+                              <div className="flex items-center gap-1 min-w-0">
+                                <a
+                                  href={`tel:${p.phoneNumber.replace(/[^\d+]/g, '')}`}
+                                  className="font-bold text-[#eaff28] truncate max-w-[120px] bg-[#071360] hover:bg-[#eaff28] hover:text-[#050842] px-2 py-0.5 rounded border border-[#eaff28]/30 transition-colors cursor-pointer"
+                                  title={`Direct to Call/Dial: ${p.phoneNumber}`}
+                                >
+                                  {p.phoneNumber}
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopy(p.phoneNumber!, `phone-${p.id}`, p.phoneNumber)}
+                                  className="rounded p-1 text-[#eaff28] hover:bg-[#eaff28]/20 transition-colors shrink-0"
+                                  title="Copy phone number"
+                                >
+                                  {copiedKey === `phone-${p.id}` ? (
+                                    <Check className="h-3 w-3 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-[#8e9bd4] text-[10px] italic">Not provided</span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Contact Channels Row: Telegram & Phone Number */}
-                      <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/15 space-y-1.5">
-                        {/* Telegram Handle */}
-                        <div className="flex items-center justify-between text-[10.5px] font-mono">
-                          <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
-                            <Send className="h-3 w-3 text-[#3ce7ff]" />
-                            <span>Telegram:</span>
-                          </span>
-                          <a
-                            href={`https://t.me/${(p.telegramUsername || p.user).replace(/^@/, '')}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-bold text-[#3ce7ff] truncate max-w-[150px] bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-2 py-0.5 rounded border border-[#3ce7ff]/30 transition-colors cursor-pointer"
-                            title={`Open Telegram profile: @${(p.telegramUsername || p.user).replace(/^@/, '')}`}
-                          >
-                            @{p.telegramUsername || p.user}
-                          </a>
-                        </div>
+                      {/* Registration Date & Time Stamp */}
+                      {(() => {
+                        const reg = getPlayerRegistrationTimestamp(p);
+                        return (
+                          <div className="mt-2.5 pt-2 border-t border-[#3ce7ff]/15 flex items-center justify-between text-[10.5px] font-mono">
+                            <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
+                              <Calendar className="h-3 w-3 text-[#3ce7ff]" />
+                              <span>Registered:</span>
+                            </span>
+                            <span className="text-white font-semibold">
+                              {reg.dateStr} &middot; <span className="text-[#eaff28]">{reg.timeStr}</span>
+                            </span>
+                          </div>
+                        );
+                      })()}
 
-                        {/* Phone Number */}
-                        <div className="flex items-center justify-between text-[10.5px] font-mono">
-                          <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
-                            <Phone className="h-3 w-3 text-[#eaff28]" />
-                            <span>Phone:</span>
-                          </span>
-                          {p.phoneNumber ? (
-                            <a
-                              href={`tel:${p.phoneNumber.replace(/[^\d+]/g, '')}`}
-                              className="font-bold text-[#eaff28] truncate max-w-[150px] bg-[#071360] hover:bg-[#eaff28] hover:text-[#050842] px-2 py-0.5 rounded border border-[#eaff28]/30 transition-colors cursor-pointer"
-                              title={`Direct to Call/Dial: ${p.phoneNumber}`}
-                            >
-                              {p.phoneNumber}
-                            </a>
-                          ) : (
-                            <span className="text-[#8e9bd4] text-[10px] italic">Not provided</span>
-                          )}
-                        </div>
+                      {/* Footer Stats Pill */}
+                      <div className="mt-3 pt-2 border-t border-[#3ce7ff]/10 flex items-center justify-between text-[10px] text-[#8e9bd4] font-mono">
+                        <span>Played: <strong className="text-white">{p.played}</strong></span>
+                        <span>GD: <strong className={p.gd >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{p.gd > 0 ? `+${p.gd}` : p.gd}</strong></span>
+                        <span className="text-[#eaff28] font-bold">{p.points} PTS</span>
                       </div>
                     </div>
-
-                    {/* Registration Date & Time Stamp */}
-                    {(() => {
-                      const reg = getPlayerRegistrationTimestamp(p);
-                      return (
-                        <div className="mt-2.5 pt-2 border-t border-[#3ce7ff]/15 flex items-center justify-between text-[10.5px] font-mono">
-                          <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
-                            <Calendar className="h-3 w-3 text-[#3ce7ff]" />
-                            <span>Registered:</span>
-                          </span>
-                          <span className="text-white font-semibold">
-                            {reg.dateStr} &middot; <span className="text-[#eaff28]">{reg.timeStr}</span>
-                          </span>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Footer Stats Pill */}
-                    <div className="mt-3 pt-2 border-t border-[#3ce7ff]/10 flex items-center justify-between text-[10px] text-[#8e9bd4] font-mono">
-                      <span>Played: <strong className="text-white">{p.played}</strong></span>
-                      <span>GD: <strong className={p.gd >= 0 ? 'text-emerald-400' : 'text-rose-400'}>{p.gd > 0 ? `+${p.gd}` : p.gd}</strong></span>
-                      <span className="text-[#eaff28] font-bold">{p.points} PTS</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              )}
+                  ))}
+                </div>
+              ))}
             </section>
 
             {/* Delete All Players Confirmation Modal */}
@@ -2053,123 +2279,496 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               </div>
             )}
 
-            {/* Suite Section 2.5: Matchday Kickoff Schedule & Countdown Options */}
-            <section className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#09115d] to-[#050842] p-5 sm:p-7 shadow-[0_0_35px_rgba(60,231,255,0.15)]">
+            {/* Suite Section 2.5: Country Clock & Match Schedule Adjustments */}
+            <section
+              id="admin-clock-adjustments"
+              className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#09115d] to-[#050842] p-5 sm:p-7 shadow-[0_0_35px_rgba(60,231,255,0.15)] scroll-mt-24"
+            >
+              {/* Section Header */}
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#3ce7ff]/20 pb-4">
                 <div className="flex items-center gap-3">
-                  <div className="grid h-10 w-10 place-items-center rounded-xl border border-[#3ce7ff] bg-[#071056] text-[#eaff28]">
-                    <Clock className="h-5 w-5" />
+                  <div className="grid h-12 w-12 place-items-center rounded-2xl border-2 border-[#eaff28] bg-gradient-to-br from-[#071360] to-[#01062b] text-[#eaff28] shadow-[0_0_15px_rgba(234,255,40,0.3)]">
+                    <Clock className="h-6 w-6" />
                   </div>
                   <div>
-                    <h3 className="font-sports text-xl text-white">
-                      Matchday Kickoff Schedule & Countdown Options
-                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base" role="img" aria-label="Ethiopia Flag">
+                        🇪🇹
+                      </span>
+                      <h3 className="font-sports text-xl sm:text-2xl text-white tracking-wide">
+                        Country Clock &amp; Match Schedule Adjustments
+                      </h3>
+                    </div>
                     <p className="mt-0.5 text-xs text-[#b9c4f0]">
-                      Configure the live countdown timer on the Hero section (optional, can be toggled on/off anytime).
+                      Set official country clock (Addis Ababa UTC+3), match starting date, and ending due date countdown displayed on the main page.
                     </p>
                   </div>
                 </div>
 
-                {/* Main Enable/Disable Toggle */}
-                <button
-                  type="button"
-                  onClick={() => onToggleShowCountdown && onToggleShowCountdown(!showCountdown)}
-                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-black uppercase tracking-wider transition-all shadow-md ${
-                    showCountdown
-                      ? 'bg-emerald-500 text-[#050842] shadow-[0_0_15px_rgba(16,185,129,0.4)] hover:bg-emerald-400'
-                      : 'border border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500'
-                  }`}
-                  title="Toggle countdown timer on Hero section"
-                >
-                  <span>{showCountdown ? '✓ Countdown Enabled' : '✕ Countdown Disabled'}</span>
-                </button>
-              </div>
+                {/* Main Enable/Disable Toggle & Collapse Button */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleUpdateClock(
+                        { enabled: !clockDraft.enabled },
+                        clockDraft.enabled
+                          ? 'Country clock & match countdown hidden on main page.'
+                          : 'Country clock & match countdown activated on main page!'
+                      )
+                    }
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                      clockDraft.enabled
+                        ? 'bg-emerald-500 text-[#050842] shadow-[0_0_15px_rgba(16,185,129,0.4)] hover:bg-emerald-400'
+                        : 'border border-gray-600 bg-gray-800 text-gray-400 hover:border-gray-500'
+                    }`}
+                    title="Toggle Country Clock & Countdown on Main Page"
+                  >
+                    <span>{clockDraft.enabled ? '✓ Clock & Countdown Enabled' : '✕ Clock & Countdown Disabled'}</span>
+                  </button>
 
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                {/* Status Box */}
-                <div className="rounded-xl border border-[#3ce7ff]/20 bg-[#050842] p-4 flex flex-col justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#3ce7ff]">
-                      Next Scheduled Matchday Target
-                    </span>
-                    <div className="mt-2 flex items-baseline gap-2">
-                      <span className="font-sports text-2xl sm:text-3xl text-[#eaff28]">
-                        {nextInfo ? `Matchday ${nextInfo.matchday}` : 'Tournament Finished'}
-                      </span>
-                      {nextInfo && (
-                        <span className="text-xs text-[#b9c4f0]">
-                          ({nextInfo.pendingCount} of {nextInfo.totalCount} matches left)
-                        </span>
-                      )}
-                    </div>
-                    {nextInfo?.restingPlayer && (
-                      <p className="mt-1 text-xs text-[#b9c4f0]">
-                        Resting team: <strong className="text-[#3ce7ff]">@{nextInfo.restingPlayer}</strong>
-                      </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsClockAdjustmentsOpen((prev) => !prev)}
+                    className="flex items-center gap-1.5 rounded-xl border border-[#3ce7ff]/40 bg-[#071360] px-3.5 py-2.5 text-xs font-bold text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#050842] transition-colors"
+                    title={isClockAdjustmentsOpen ? 'Collapse clock adjustments' : 'Expand clock adjustments'}
+                  >
+                    <span>{isClockAdjustmentsOpen ? 'Collapse' : 'Expand'}</span>
+                    {isClockAdjustmentsOpen ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
                     )}
-                  </div>
-                  <p className="mt-3 text-[11px] text-[#8e9bd4] border-t border-[#3ce7ff]/15 pt-2">
-                    Hero timer automatically detects unfinished fixtures and schedules the earliest pending matchday.
-                  </p>
-                </div>
-
-                {/* Scheduled Kickoff Datetime Picker */}
-                <div className="rounded-xl border border-[#3ce7ff]/20 bg-[#050842] p-4">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[#3ce7ff]">
-                    Set Kickoff Date &amp; Time
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={formatToDatetimeLocal(targetDateObj)}
-                    onChange={(e) => {
-                      if (e.target.value && onUpdateCountdownTarget) {
-                        const parsed = new Date(e.target.value);
-                        if (!isNaN(parsed.getTime())) {
-                          onUpdateCountdownTarget(parsed.toISOString());
-                        }
-                      }
-                    }}
-                    className="mt-2 w-full rounded-lg border border-[#3ce7ff]/50 bg-[#060a48] px-3 py-2 text-xs font-mono text-white focus:border-[#eaff28] focus:outline-none"
-                  />
-
-                  {/* Quick Presets */}
-                  <div className="mt-3">
-                    <span className="block text-[9px] font-semibold text-[#8e9bd4] uppercase tracking-wider mb-1.5">
-                      Quick Schedule Presets:
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => handleApplyPresetHours(2)}
-                        className="rounded-md border border-[#3ce7ff]/30 bg-[#071056] px-2.5 py-1 text-[10px] font-semibold text-[#b9c4f0] hover:text-white hover:border-[#3ce7ff] transition-colors"
-                      >
-                        +2 Hours
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApplyPresetHours(24)}
-                        className="rounded-md border border-[#3ce7ff]/30 bg-[#071056] px-2.5 py-1 text-[10px] font-semibold text-[#b9c4f0] hover:text-white hover:border-[#3ce7ff] transition-colors"
-                      >
-                        Tomorrow (+24h)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApplyPresetHours(72)}
-                        className="rounded-md border border-[#3ce7ff]/30 bg-[#071056] px-2.5 py-1 text-[10px] font-semibold text-[#b9c4f0] hover:text-white hover:border-[#3ce7ff] transition-colors"
-                      >
-                        +3 Days
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleApplyPresetHours(168)}
-                        className="rounded-md border border-[#3ce7ff]/30 bg-[#071056] px-2.5 py-1 text-[10px] font-semibold text-[#b9c4f0] hover:text-white hover:border-[#3ce7ff] transition-colors"
-                      >
-                        +1 Week
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 </div>
               </div>
+
+              {/* Live Country Clock Ticking Bar */}
+              {isClockAdjustmentsOpen && (() => {
+                const status = getMatchClockStatus(clockDraft, adminClockNow);
+                const currentMd = clockDraft.matchday || 1;
+                const todayIsoDate = new Date().toISOString().slice(0, 10);
+                const activeMatchDate = clockDraft.matchDate || todayIsoDate;
+                const activeStartT = clockDraft.startTime || '21:00';
+                const activeEndT = clockDraft.endTime || '23:00';
+
+                return (
+                  <div className="mt-5 space-y-5">
+                    {/* Real-time Timezone & Phase Readout */}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {/* Ethiopian Country Clock */}
+                      <div className="rounded-xl border border-[#eaff28]/40 bg-[#030733]/90 p-3.5 flex items-center gap-3">
+                        <span className="text-2xl" role="img" aria-label="Ethiopia">
+                          🇪🇹
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[9.5px] font-mono font-bold uppercase tracking-wider text-[#eaff28]">
+                            Ethiopia Country Clock (EAT)
+                          </span>
+                          <span className="font-mono text-base font-black text-white">
+                            {status.ethiopiaNow.timeStr}
+                          </span>
+                          <span className="block text-[9.5px] text-[#8e9bd4] truncate mt-0.5">
+                            {status.ethiopiaNow.dateStr} (UTC+3)
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Local Phone Clock */}
+                      <div className="rounded-xl border border-[#3ce7ff]/30 bg-[#030733]/90 p-3.5 flex items-center gap-3">
+                        <Smartphone className="h-6 w-6 text-[#3ce7ff] shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[9.5px] font-mono font-bold uppercase tracking-wider text-[#3ce7ff]">
+                            Your Phone Clock ({status.localNow.tzLabel})
+                          </span>
+                          <span className="font-mono text-base font-bold text-white">
+                            {status.localNow.timeStr}
+                          </span>
+                          <span className="block text-[9.5px] text-[#8e9bd4] truncate mt-0.5">
+                            Phone Style: <strong className="text-[#eaff28]">{clockDraft.timeFormat === '12h' ? '12-Hour (AM/PM)' : '24-Hour'}</strong>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Current Active Countdown Phase */}
+                      <div
+                        className={`rounded-xl border p-3.5 flex items-center gap-3 ${
+                          status.phase === 'in_progress'
+                            ? 'border-[#eaff28] bg-[#071360]'
+                            : status.phase === 'concluded'
+                            ? 'border-gray-600 bg-gray-900/60'
+                            : 'border-[#3ce7ff]/40 bg-[#071360]'
+                        }`}
+                      >
+                        <Clock
+                          className={`h-6 w-6 shrink-0 ${
+                            status.phase === 'in_progress' ? 'text-[#eaff28]' : 'text-[#3ce7ff]'
+                          }`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className="block text-[9.5px] font-mono font-bold uppercase tracking-wider text-[#8e9bd4]">
+                            Main Page Countdown State
+                          </span>
+                          <span className="font-mono text-xs font-bold text-white block truncate">
+                            {status.phase === 'before_start' && `⏳ Counting to ${status.matchdayLabel} Kickoff`}
+                            {status.phase === 'in_progress' && `🔥 ${status.matchdayLabel} Live · Due Date Count`}
+                            {status.phase === 'concluded' && `🏁 ${status.matchdayLabel} Concluded`}
+                          </span>
+                          <span className="block text-[9.5px] text-[#eaff28] font-mono font-bold mt-0.5">
+                            Local Phone Timer: <strong className="text-white tracking-wider">{status.phoneTimerString}</strong>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 1: Active Matchday Selection Bar */}
+                    <div className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-[#050842] p-4 sm:p-5 shadow-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3ce7ff]/20 pb-3 mb-3">
+                        <div className="flex items-center gap-2">
+                          <Trophy className="h-4 w-4 text-[#eaff28]" />
+                          <label className="text-xs font-mono font-bold uppercase tracking-wider text-white">
+                            Target Matchday to Count ({distinctMatchdays.length} Total Matchdays)
+                          </label>
+                        </div>
+                        <span className="rounded-full bg-[#eaff28] px-3 py-0.5 text-xs font-mono font-black uppercase text-[#050842]">
+                          Active: Matchday {currentMd}
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-[#b9c4f0] mb-3">
+                        Choose which Matchday to countdown on the main page. The countdown starts at kickoff (e.g. 21:00) and counts down until the matchday closes (e.g. 23:00) using local phone counting style.
+                      </p>
+
+                      <div className="flex flex-wrap gap-2">
+                        {distinctMatchdays.map((md) => {
+                          const isSelected = md === currentMd;
+                          const mdFixtures = fixtures.filter((f) => f.matchday === md);
+                          const isDone = mdFixtures.length > 0 && mdFixtures.every((f) =>
+                            results.some((r) => r.matchday === md && !r.isPostponed && r.home_user === f.home && r.away_user === f.away)
+                          );
+
+                          return (
+                            <button
+                              key={`clock-md-${md}`}
+                              type="button"
+                              onClick={() => handleSelectMatchdayForClock(md)}
+                              className={`rounded-xl border px-3 py-1.5 text-xs font-mono font-bold transition-all ${
+                                isSelected
+                                  ? 'border-[#eaff28] bg-[#eaff28] text-[#050842] shadow-[0_0_12px_rgba(234,255,40,0.4)] scale-105'
+                                  : isDone
+                                  ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-300 hover:border-emerald-400'
+                                  : 'border-[#3ce7ff]/30 bg-[#071360] text-white hover:border-[#3ce7ff] hover:text-[#eaff28]'
+                              }`}
+                            >
+                              <span>Matchday {md}</span>
+                              {isDone && <span className="ml-1 text-[9px]">✓</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Step 2: Matchday Schedule & Time Windows (e.g. 21:00 to 23:00) */}
+                    <div className="grid gap-5 md:grid-cols-2">
+                      {/* Box 1: Matchday Kickoff (e.g. 21:00) */}
+                      <div className="rounded-2xl border-2 border-[#3ce7ff]/40 bg-[#050842] p-5 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-[#3ce7ff]/15 pb-2.5 mb-3">
+                          <div className="flex items-center gap-2">
+                            <PlayCircle className="h-4 w-4 text-[#3ce7ff]" />
+                            <label className="text-xs font-mono font-bold uppercase tracking-wider text-[#3ce7ff]">
+                              1. Matchday {currentMd} Kickoff Time
+                            </label>
+                          </div>
+                          <span className="rounded bg-[#3ce7ff]/15 text-[#3ce7ff] px-2 py-0.5 text-[9.5px] font-mono font-bold uppercase">
+                            Kickoff
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-[#b9c4f0] mb-3">
+                          When this kickoff time is reached (e.g. 21:00), Matchday {currentMd} becomes live!
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[9.5px] font-mono font-bold uppercase text-[#8e9bd4] mb-1">
+                              Matchday Date
+                            </label>
+                            <input
+                              type="date"
+                              value={activeMatchDate}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleApplyMatchdayScheduleTimes(activeStartT, activeEndT, e.target.value);
+                                }
+                              }}
+                              className="w-full rounded-xl border border-[#3ce7ff]/50 bg-[#060a48] px-3 py-2 text-xs font-mono text-white focus:border-[#eaff28] focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[9.5px] font-mono font-bold uppercase text-[#3ce7ff] mb-1">
+                              Kickoff Time (24h)
+                            </label>
+                            <input
+                              type="time"
+                              value={activeStartT}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleApplyMatchdayScheduleTimes(e.target.value, activeEndT, activeMatchDate);
+                                }
+                              }}
+                              className="w-full rounded-xl border border-[#3ce7ff]/50 bg-[#060a48] px-3 py-2 text-xs font-mono text-white focus:border-[#eaff28] focus:outline-none"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Kickoff Readout */}
+                        <div className="mt-3 rounded-xl bg-[#030733] border border-[#3ce7ff]/20 p-2.5 flex items-center justify-between text-xs font-mono">
+                          <span className="text-[#8e9bd4]">Kickoff Format:</span>
+                          <span className="text-white font-bold">
+                            {formatPhoneTime(new Date(clockDraft.startDate), clockDraft.timeFormat || '24h')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Box 2: Matchday Ending Due Time (e.g. 23:00) */}
+                      <div className="rounded-2xl border-2 border-[#eaff28]/40 bg-[#050842] p-5 shadow-lg">
+                        <div className="flex items-center justify-between border-b border-[#eaff28]/15 pb-2.5 mb-3">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-[#eaff28]" />
+                            <label className="text-xs font-mono font-bold uppercase tracking-wider text-[#eaff28]">
+                              2. Matchday {currentMd} Ending Due Time
+                            </label>
+                          </div>
+                          <span className="rounded bg-[#eaff28]/15 text-[#eaff28] px-2 py-0.5 text-[9.5px] font-mono font-bold uppercase">
+                            Due Deadline
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-[#b9c4f0] mb-3">
+                          Matches must conclude before this deadline (e.g. 23:00). The timer counts down to this ending time.
+                        </p>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[9.5px] font-mono font-bold uppercase text-[#eaff28] mb-1">
+                              Ending Time (24h)
+                            </label>
+                            <input
+                              type="time"
+                              value={activeEndT}
+                              onChange={(e) => {
+                                if (e.target.value) {
+                                  handleApplyMatchdayScheduleTimes(activeStartT, e.target.value, activeMatchDate);
+                                }
+                              }}
+                              className="w-full rounded-xl border border-[#eaff28]/50 bg-[#060a48] px-3 py-2 text-xs font-mono text-white focus:border-[#eaff28] focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[9.5px] font-mono font-bold uppercase text-[#8e9bd4] mb-1">
+                              Duration Window
+                            </label>
+                            <div className="h-[38px] rounded-xl border border-white/10 bg-[#030733] px-3 flex items-center text-xs font-mono font-bold text-[#eaff28]">
+                              {(() => {
+                                const diffH = Math.max(
+                                  0.5,
+                                  Math.round(
+                                    ((new Date(clockDraft.endDate).getTime() - new Date(clockDraft.startDate).getTime()) /
+                                      (3600 * 1000)) *
+                                      10
+                                  ) / 10
+                                );
+                                return `${diffH} Hours Window`;
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Ending Readout */}
+                        <div className="mt-3 rounded-xl bg-[#030733] border border-[#eaff28]/20 p-2.5 flex items-center justify-between text-xs font-mono">
+                          <span className="text-[#8e9bd4]">Deadline Format:</span>
+                          <span className="text-[#eaff28] font-bold">
+                            {formatPhoneTime(new Date(clockDraft.endDate), clockDraft.timeFormat || '24h')}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 3: Fast Matchday Presets (21:00 — 23:00) */}
+                    <div className="rounded-2xl border border-[#3ce7ff]/30 bg-[#040833] p-4">
+                      <span className="block text-[10px] font-mono font-bold uppercase tracking-wider text-[#eaff28] mb-2.5">
+                        ⚡ Quick Matchday Schedule Presets:
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {/* 21:00 - 23:00 Today */}
+                        <button
+                          type="button"
+                          onClick={() => handleApplyMatchdayScheduleTimes('21:00', '23:00', todayIsoDate)}
+                          className="rounded-xl border border-[#eaff28]/60 bg-[#071360] hover:bg-[#eaff28] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-bold text-[#eaff28] transition-all shadow-sm"
+                        >
+                          🌟 21:00 — 23:00 (Today)
+                        </button>
+
+                        {/* 21:00 - 23:00 Tomorrow */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const tom = new Date();
+                            tom.setDate(tom.getDate() + 1);
+                            const tomStr = tom.toISOString().slice(0, 10);
+                            handleApplyMatchdayScheduleTimes('21:00', '23:00', tomStr);
+                          }}
+                          className="rounded-xl border border-[#3ce7ff]/40 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-white transition-all shadow-sm"
+                        >
+                          📅 21:00 — 23:00 (Tomorrow)
+                        </button>
+
+                        {/* 20:00 - 22:00 Today */}
+                        <button
+                          type="button"
+                          onClick={() => handleApplyMatchdayScheduleTimes('20:00', '22:00', todayIsoDate)}
+                          className="rounded-xl border border-[#3ce7ff]/30 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-[#b9c4f0] transition-all shadow-sm"
+                        >
+                          20:00 — 22:00 (Today)
+                        </button>
+
+                        {/* 19:00 - 21:00 Today */}
+                        <button
+                          type="button"
+                          onClick={() => handleApplyMatchdayScheduleTimes('19:00', '21:00', todayIsoDate)}
+                          className="rounded-xl border border-[#3ce7ff]/30 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-[#b9c4f0] transition-all shadow-sm"
+                        >
+                          19:00 — 21:00 (Today)
+                        </button>
+
+                        {/* Next 2 Hours */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nowD = new Date();
+                            const pad = (n: number) => n.toString().padStart(2, '0');
+                            const startStr = `${pad(nowD.getHours())}:${pad(nowD.getMinutes())}`;
+                            const endD = new Date(nowD.getTime() + 2 * 3600 * 1000);
+                            const endStr = `${pad(endD.getHours())}:${pad(endD.getMinutes())}`;
+                            handleApplyMatchdayScheduleTimes(startStr, endStr, todayIsoDate);
+                          }}
+                          className="rounded-xl border border-emerald-500/40 bg-[#060a48] hover:bg-emerald-500 hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-emerald-300 transition-all shadow-sm"
+                        >
+                          ⏱️ Next 2 Hours (From Now)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Step 4: Phone Counting Style & Timezone Settings */}
+                    <div className="grid gap-4 sm:grid-cols-2 rounded-2xl border border-[#3ce7ff]/20 bg-[#040833] p-4">
+                      {/* Local Phone Time Format Selector */}
+                      <div>
+                        <label className="block text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#3ce7ff] mb-2">
+                          <Smartphone className="inline h-3.5 w-3.5 mr-1" />
+                          Local Phone Time Style
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateClock({ timeFormat: '24h' }, '24-Hour phone style activated')}
+                            className={`rounded-xl border p-2.5 text-center text-xs font-mono transition-all ${
+                              clockDraft.timeFormat !== '12h'
+                                ? 'border-[#eaff28] bg-[#071360] text-[#eaff28] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-sm font-bold mb-0.5">21:00 — 23:00</span>
+                            <span className="text-[10px] text-[#8e9bd4]">24-Hour Phone Clock</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateClock({ timeFormat: '12h' }, '12-Hour phone style activated')}
+                            className={`rounded-xl border p-2.5 text-center text-xs font-mono transition-all ${
+                              clockDraft.timeFormat === '12h'
+                                ? 'border-[#3ce7ff] bg-[#071360] text-[#3ce7ff] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-sm font-bold mb-0.5">9:00 PM — 11:00 PM</span>
+                            <span className="text-[10px] text-[#8e9bd4]">12-Hour Phone Clock</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Country Clock Display Mode */}
+                      <div>
+                        <label className="block text-[10.5px] font-mono font-bold uppercase tracking-wider text-[#eaff28] mb-2">
+                          Country Clock Display Mode
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateClock({ countryZone: 'both' }, 'Dual clocks activated')}
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all ${
+                              clockDraft.countryZone === 'both'
+                                ? 'border-[#eaff28] bg-[#071360] text-[#eaff28] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-sm mb-0.5">🇪🇹 + 📱</span>
+                            <span>Both Clocks</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleUpdateClock({ countryZone: 'Africa/Addis_Ababa' }, 'Ethiopia country clock set')
+                            }
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all ${
+                              clockDraft.countryZone === 'Africa/Addis_Ababa'
+                                ? 'border-[#eaff28] bg-[#071360] text-[#eaff28] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-sm mb-0.5">🇪🇹</span>
+                            <span>Ethiopia Only</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateClock({ countryZone: 'local' }, 'Local device clock set')}
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all ${
+                              clockDraft.countryZone === 'local'
+                                ? 'border-[#3ce7ff] bg-[#071360] text-[#3ce7ff] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-sm mb-0.5">📱</span>
+                            <span>Phone Only</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Step 5: Live Main Page Preview in Admin */}
+                    <div className="pt-2 border-t border-[#3ce7ff]/20">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-xs font-mono font-bold uppercase tracking-wider text-[#eaff28] flex items-center gap-1.5">
+                          <Eye className="h-4 w-4" />
+                          <span>Live Main Page Preview (What Users See on Display)</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const def = getDefaultClockConfig(currentMd);
+                            handleUpdateClock(def, 'Reset schedule to default settings.');
+                          }}
+                          className="text-[10px] font-mono text-[#8e9bd4] hover:text-[#eaff28] underline transition-colors"
+                        >
+                          Reset to Defaults (21:00 — 23:00)
+                        </button>
+                      </div>
+                      <CountryMatchClockBanner config={clockDraft} isAdmin={false} />
+                    </div>
+                  </div>
+                );
+              })()}
             </section>
 
             {/* Suite Section 3: Matchday Score Recording */}

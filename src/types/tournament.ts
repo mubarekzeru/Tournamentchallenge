@@ -85,3 +85,17 @@ export interface GroupStageConfig {
 
 export type TableSortField = 'rank' | 'user' | 'played' | 'w' | 'd' | 'l' | 'gd' | 'points' | 'winStreak';
 
+export interface MatchClockConfig {
+  enabled: boolean;
+  matchday?: number; // Active matchday being counted (e.g. 1)
+  matchdayLabel?: string; // Optional label (e.g. "Matchday 1")
+  matchDate?: string; // Date of matchday (YYYY-MM-DD)
+  startTime?: string; // Starting kickoff time (e.g. "21:00")
+  endTime?: string; // Ending due time (e.g. "23:00")
+  startDate: string; // ISO string for matchday start date & time
+  endDate: string; // ISO string for matchday ending due date
+  countryZone: 'Africa/Addis_Ababa' | 'local' | 'both'; // Country clock mode (defaults to 'both')
+  timeFormat?: '24h' | '12h' | 'auto'; // Local phone counting style (24-hour e.g. 21:00 or 12-hour e.g. 9:00 PM)
+  title?: string; // Optional custom banner title (e.g. "Matchday 1 Kickoff & Due Date")
+  subtitle?: string; // Optional announcement subtitle
+}

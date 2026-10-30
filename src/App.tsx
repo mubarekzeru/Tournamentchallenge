@@ -11,8 +11,9 @@ import {
   DEFAULT_RESULTS,
   ADMIN_PASSCODE,
 } from './data/tournamentData';
-import { Player, MatchResult, Fixture, TournamentFormat, GroupStageConfig } from './types/tournament';
+import { Player, MatchResult, Fixture, TournamentFormat, GroupStageConfig, MatchClockConfig } from './types/tournament';
 import { calculateStandings } from './utils/standings';
+import { getDefaultClockConfig } from './utils/countryClock';
 import {
   partitionPlayersIntoGroups,
   generateGroupStageFixtures as genGroupStageFixtures,
@@ -28,6 +29,7 @@ import { Navbar, SectionId } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { HowItWorks } from './components/HowItWorks';
 import { FixturesSection } from './components/FixturesSection';
+import { RegisteredPlayersSection } from './components/RegisteredPlayersSection';
 import { LeagueTable } from './components/LeagueTable';
 import { GoldenBoot } from './components/GoldenBoot';
 import { RulesSection } from './components/RulesSection';
@@ -53,6 +55,8 @@ const STORAGE_KEY_RESULTS = 'efootball_tournament_results_v3';
 const STORAGE_KEY_PASSCODE = 'efootball_admin_passcode_v3';
 const STORAGE_KEY_FORMAT = 'efootball_tournament_format_v3';
 const STORAGE_KEY_GROUP_CONFIG = 'efootball_group_config_v3';
+const STORAGE_KEY_MATCH_CLOCK = 'efootball_match_clock_config_v1';
+const STORAGE_KEY_REGISTRATION_ENDED = 'efootball_registration_ended_v1';
 
 export default function App() {
   // Active navigation section: tracks current section on page
@@ -181,8 +185,29 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Registration rule: Registration is strictly open BEFORE matches have started
-  const isRegistrationOpen = results.length === 0;
+  // Registration state: Admin can explicitly end or reopen registration
+  const [isRegistrationEnded, setIsRegistrationEnded] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_REGISTRATION_ENDED);
+      if (saved !== null) return saved === 'true';
+    } catch (e) {}
+    return false;
+  });
+
+  // Registration rule: Registration is strictly open BEFORE matches have started AND before admin manually ended it
+  const isRegistrationOpen = !isRegistrationEnded && results.length === 0;
+
+  // Country Clock & Match Schedule Dual-Phase Countdown state
+  const [matchClockConfig, setMatchClockConfig] = useState<MatchClockConfig>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_MATCH_CLOCK);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return getDefaultClockConfig();
+  });
 
   // Sync to Firestore & server so all devices worldwide see the exact same data and profile pictures
   const syncToServer = useCallback(
@@ -191,7 +216,9 @@ export default function App() {
       resultsToSync: MatchResult[],
       passcode?: string,
       formatToSync?: TournamentFormat,
-      configToSync?: GroupStageConfig
+      configToSync?: GroupStageConfig,
+      clockConfigToSync?: MatchClockConfig,
+      isRegistrationEndedToSync?: boolean
     ) => {
       saveTournamentDataToFirestore({
         players: playersToSync,
@@ -199,9 +226,12 @@ export default function App() {
         adminPasscode: passcode || adminPasscode,
         tournamentFormat: formatToSync || tournamentFormat,
         groupStageConfig: configToSync || groupStageConfig,
+        clockConfig: clockConfigToSync !== undefined ? clockConfigToSync : matchClockConfig,
+        isRegistrationEnded:
+          isRegistrationEndedToSync !== undefined ? isRegistrationEndedToSync : isRegistrationEnded,
       });
     },
-    [adminPasscode, tournamentFormat, groupStageConfig]
+    [adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, isRegistrationEnded]
   );
 
   // Real-time synchronization via Firebase Firestore across all devices and links
@@ -245,6 +275,22 @@ export default function App() {
           localStorage.setItem(STORAGE_KEY_GROUP_CONFIG, JSON.stringify(data.groupStageConfig));
         } catch (e) {}
       }
+      if (data.clockConfig) {
+        setMatchClockConfig(data.clockConfig);
+        setShowCountdown(data.clockConfig.enabled);
+        setCountdownTargetDate(data.clockConfig.startDate);
+        try {
+          localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(data.clockConfig));
+          localStorage.setItem('efootball_show_countdown', String(data.clockConfig.enabled));
+          localStorage.setItem('efootball_countdown_target_date', data.clockConfig.startDate);
+        } catch (e) {}
+      }
+      if (typeof data.isRegistrationEnded === 'boolean') {
+        setIsRegistrationEnded(data.isRegistrationEnded);
+        try {
+          localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(data.isRegistrationEnded));
+        } catch (e) {}
+      }
     });
 
     // 2. Fetch local API backup if offline
@@ -268,6 +314,12 @@ export default function App() {
           }
           if (json.data.groupStageConfig) {
             setGroupStageConfig(json.data.groupStageConfig);
+          }
+          if (json.data.clockConfig) {
+            setMatchClockConfig((prev) => prev || json.data.clockConfig);
+          }
+          if (typeof json.data.isRegistrationEnded === 'boolean') {
+            setIsRegistrationEnded(json.data.isRegistrationEnded);
           }
         }
       })
@@ -500,7 +552,7 @@ export default function App() {
       table: 'table',
       admin: 'admin',
       rules: 'rules',
-      players: 'fixtures',
+      players: 'registered-players',
     };
 
     setTimeout(() => {
@@ -512,6 +564,35 @@ export default function App() {
       }
     }, 60);
   };
+
+  // Toggle player registration open / ended
+  const handleToggleRegistration = useCallback(
+    (ended?: boolean) => {
+      setIsRegistrationEnded((prev) => {
+        const nextVal = ended !== undefined ? ended : !prev;
+        try {
+          localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(nextVal));
+        } catch (e) {}
+        saveTournamentDataToFirestore({
+          players: basePlayers,
+          results,
+          adminPasscode,
+          tournamentFormat,
+          groupStageConfig,
+          clockConfig: matchClockConfig,
+          isRegistrationEnded: nextVal,
+        });
+        addToast(
+          nextVal
+            ? 'Player registration closed! Upcoming matches and pairings are now revealed.'
+            : 'Player registration reopened! Upcoming matches are hidden until registration ends.',
+          'info'
+        );
+        return nextVal;
+      });
+    },
+    [basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, addToast]
+  );
 
   // Admin authentication handlers
   const handleAdminSuccess = () => {
@@ -886,22 +967,41 @@ export default function App() {
   });
 
   const handleToggleCountdown = (val?: boolean) => {
-    setShowCountdown((prev) => {
-      const nextVal = typeof val === 'boolean' ? val : !prev;
-      try {
-        localStorage.setItem('efootball_show_countdown', String(nextVal));
-      } catch {}
-      addToast(nextVal ? 'Matchday countdown timer enabled on Hero!' : 'Matchday countdown timer hidden on Hero.');
-      return nextVal;
-    });
+    const nextVal = typeof val === 'boolean' ? val : !showCountdown;
+    setShowCountdown(nextVal);
+    const updatedClock = { ...matchClockConfig, enabled: nextVal };
+    setMatchClockConfig(updatedClock);
+    try {
+      localStorage.setItem('efootball_show_countdown', String(nextVal));
+      localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(updatedClock));
+    } catch {}
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock);
+    addToast(nextVal ? 'Country clock & match countdown enabled on Hero!' : 'Country clock & match countdown hidden on Hero.');
   };
 
   const handleUpdateCountdownTarget = (dateStr: string) => {
     setCountdownTargetDate(dateStr);
+    const updatedClock = { ...matchClockConfig, startDate: dateStr };
+    setMatchClockConfig(updatedClock);
     try {
       localStorage.setItem('efootball_countdown_target_date', dateStr);
+      localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(updatedClock));
     } catch {}
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock);
     addToast('Scheduled matchday kickoff updated!');
+  };
+
+  const handleUpdateMatchClockConfig = (newConfig: MatchClockConfig) => {
+    setMatchClockConfig(newConfig);
+    setShowCountdown(newConfig.enabled);
+    setCountdownTargetDate(newConfig.startDate);
+    try {
+      localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(newConfig));
+      localStorage.setItem('efootball_show_countdown', String(newConfig.enabled));
+      localStorage.setItem('efootball_countdown_target_date', newConfig.startDate);
+    } catch {}
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, newConfig);
+    addToast('Country clock & match schedule updated successfully!');
   };
 
   return (
@@ -957,6 +1057,7 @@ export default function App() {
               groupStageConfig={groupStageConfig}
               showCountdown={showCountdown}
               countdownTargetDate={countdownTargetDate}
+              matchClockConfig={matchClockConfig}
               activeFixtureToEdit={activeFixtureToEdit}
               onClearActiveFixture={() => setActiveFixtureToEdit(null)}
               onAdminLogin={() => {
@@ -976,9 +1077,11 @@ export default function App() {
               onUpdateGroupConfig={handleUpdateGroupConfig}
               onToggleShowCountdown={handleToggleCountdown}
               onUpdateCountdownTarget={handleUpdateCountdownTarget}
+              onUpdateMatchClockConfig={handleUpdateMatchClockConfig}
               onPurgeOldData={handlePurgeOldMemberData}
               onToast={addToast}
               onSelectPlayer={(player) => setSelectedPlayer(player)}
+              onToggleRegistration={handleToggleRegistration}
             />
           </div>
         ) : (
@@ -994,11 +1097,25 @@ export default function App() {
               config={groupStageConfig}
               showCountdown={showCountdown}
               countdownTargetDate={countdownTargetDate}
+              matchClockConfig={matchClockConfig}
+              isAdmin={isAdmin}
+              onNavigateToAdminClock={() => handleNavigateSection('admin')}
               onToggleShowCountdown={handleToggleCountdown}
               onScrollToFixtures={() => handleNavigateSection('fixtures')}
               onScrollToTable={() => handleNavigateSection('table')}
               onOpenAIScout={() => setIsAIScoutOpen(true)}
               onSelectPlayer={(player) => setSelectedPlayer(player)}
+            />
+
+            {/* Current Registered Competitors Roster Showcase */}
+            <RegisteredPlayersSection
+              players={calculatedPlayers}
+              isRegistrationOpen={isRegistrationOpen}
+              isAdmin={isAdmin}
+              onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
+              onSelectPlayer={(player) => setSelectedPlayer(player)}
+              onToggleRegistration={handleToggleRegistration}
+              onToast={addToast}
             />
 
             {/* How The Challenge Works */}
@@ -1010,12 +1127,14 @@ export default function App() {
               results={results}
               players={calculatedPlayers}
               isAdmin={isAdmin}
+              isRegistrationOpen={isRegistrationOpen}
               tournamentFormat={tournamentFormat}
               config={groupStageConfig}
               onSelectFixtureToRecord={handleSelectFixtureToRecord}
               onDeleteResult={handleDeleteResult}
               onNavigateToBracket={() => handleNavigateSection('bracket')}
               onSelectPlayer={(player) => setSelectedPlayer(player)}
+              onToggleRegistration={handleToggleRegistration}
             />
 
             {/* Knockout Stage Bracket & Graphics Section */}
@@ -1030,9 +1149,11 @@ export default function App() {
                 tournamentFormat={tournamentFormat}
                 config={groupStageConfig}
                 isAdmin={isAdmin}
+                isRegistrationOpen={isRegistrationOpen}
                 onSelectFixtureToRecord={handleSelectFixtureToRecord}
                 onSelectPlayer={(player) => setSelectedPlayer(player)}
                 onToast={addToast}
+                onToggleRegistration={handleToggleRegistration}
               />
             )}
 

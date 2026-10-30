@@ -52,9 +52,11 @@ interface BracketPageProps {
   tournamentFormat?: TournamentFormat;
   config?: GroupStageConfig;
   isAdmin?: boolean;
+  isRegistrationOpen?: boolean;
   onSelectFixtureToRecord?: (fixture: Fixture, existingResult?: MatchResult) => void;
   onSelectPlayer?: (player: Player) => void;
   onToast?: (message: string, type?: 'success' | 'info' | 'error') => void;
+  onToggleRegistration?: (ended?: boolean) => void;
 }
 
 // Centerpiece Trophy SVG component
@@ -131,9 +133,11 @@ export const BracketPage: React.FC<BracketPageProps> = ({
   tournamentFormat = 'group_stage',
   config = DEFAULT_GROUP_CONFIG,
   isAdmin = false,
+  isRegistrationOpen = false,
   onSelectFixtureToRecord,
   onSelectPlayer,
   onToast,
+  onToggleRegistration,
 }) => {
   const bracketRef = useRef<HTMLDivElement>(null);
 
@@ -837,6 +841,37 @@ export const BracketPage: React.FC<BracketPageProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Registration Open notice for bracket */}
+      {isRegistrationOpen && results.length === 0 && (
+        <div className="mb-4 rounded-2xl border border-amber-400/50 bg-gradient-to-r from-amber-500/15 via-[#071360] to-amber-500/15 p-3.5 text-center shadow-lg">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-left">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-400/20 border border-amber-400/50 text-amber-300 shrink-0">
+                <Lock className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="font-sports text-xs sm:text-sm font-black text-amber-300 uppercase tracking-wide">
+                  Bracket Pairings Hidden During Registration
+                </h4>
+                <p className="text-[11px] sm:text-xs text-[#b9c4f0] truncate sm:whitespace-normal">
+                  Player registration is currently active. Official knockout brackets will be finalized once competitor enlistment concludes.
+                </p>
+              </div>
+            </div>
+
+            {isAdmin && onToggleRegistration && (
+              <button
+                type="button"
+                onClick={() => onToggleRegistration(true)}
+                className="rounded-xl border border-amber-400 bg-amber-400/25 px-3.5 py-1.5 text-xs font-bold text-amber-300 hover:bg-amber-400 hover:text-[#050842] transition-colors shrink-0 whitespace-nowrap"
+              >
+                End Registration
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Path highlight indicator */}
       {highlightedPlayer && (

@@ -1,6 +1,6 @@
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 import { db, validateFirestoreConnection } from '../lib/firebase';
-import { Player, MatchResult, TournamentFormat, GroupStageConfig } from '../types/tournament';
+import { Player, MatchResult, TournamentFormat, GroupStageConfig, MatchClockConfig } from '../types/tournament';
 
 const TOURNAMENT_DOC_PATH = 'live';
 
@@ -10,6 +10,8 @@ export interface TournamentPayload {
   adminPasscode?: string;
   tournamentFormat?: TournamentFormat;
   groupStageConfig?: GroupStageConfig;
+  clockConfig?: MatchClockConfig;
+  isRegistrationEnded?: boolean;
   updatedAt: string;
 }
 
@@ -79,6 +81,8 @@ export async function saveTournamentDataToFirestore(payload: {
   adminPasscode?: string;
   tournamentFormat?: TournamentFormat;
   groupStageConfig?: GroupStageConfig;
+  clockConfig?: MatchClockConfig;
+  isRegistrationEnded?: boolean;
 }): Promise<boolean> {
   try {
     const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
@@ -95,6 +99,12 @@ export async function saveTournamentDataToFirestore(payload: {
     }
     if (payload.groupStageConfig !== undefined) {
       rawPayload.groupStageConfig = payload.groupStageConfig;
+    }
+    if (payload.clockConfig !== undefined) {
+      rawPayload.clockConfig = payload.clockConfig;
+    }
+    if (payload.isRegistrationEnded !== undefined) {
+      rawPayload.isRegistrationEnded = payload.isRegistrationEnded;
     }
 
     // Clean overwrite without merge and strip all undefined values so Firestore never errors
