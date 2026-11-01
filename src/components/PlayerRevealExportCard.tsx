@@ -146,35 +146,57 @@ export const PlayerRevealExportCard: React.FC<PlayerRevealExportCardProps> = ({
             >
               {player.team}
             </h1>
-            <div className="flex items-center gap-3 mt-3 pt-3 border-t border-[#3ce7ff]/20 flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-[#8e9bd4] font-mono">Player Handle:</span>
-                <span className="font-sports text-xl font-black text-[#eaff28] tracking-wide">
+            <div
+              className="mt-3.5 pt-3.5 border-t border-[#3ce7ff]/20 flex items-center justify-between gap-3 overflow-hidden"
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {/* Player Handle - STRICT SINGLE LINE (never breaks up and down) */}
+              <div
+                className="flex items-center gap-2 shrink-0 min-w-0"
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <span className="text-xs text-[#8e9bd4] font-mono shrink-0 whitespace-nowrap">Player Handle:</span>
+                <span
+                  className="font-sports text-xl font-black text-[#eaff28] tracking-wide whitespace-nowrap inline-block"
+                  style={{
+                    whiteSpace: 'nowrap',
+                    wordBreak: 'keep-all',
+                    overflowWrap: 'normal',
+                    display: 'inline-block',
+                  }}
+                  title={`@${player.user}`}
+                >
                   @{player.user}
                 </span>
               </div>
-              <span className="h-4 w-px bg-[#3ce7ff]/30" />
-              <div className="flex items-center gap-1.5 text-xs font-mono text-[#8e9bd4]">
-                <Calendar className="h-3.5 w-3.5 text-[#3ce7ff]" />
-                <span>Registered: <strong className="text-white">{reg.dateStr}</strong> <span className="text-[#eaff28]">({reg.timeStr})</span></span>
+
+              <div className="flex items-center gap-3 shrink-0" style={{ whiteSpace: 'nowrap' }}>
+                <div className="flex items-center gap-1.5 text-xs font-mono text-[#8e9bd4] whitespace-nowrap shrink-0">
+                  <Calendar className="h-3.5 w-3.5 text-[#3ce7ff] shrink-0" />
+                  <span className="whitespace-nowrap">Registered: <strong className="text-white">{reg.dateStr}</strong> <span className="text-[#eaff28]">({reg.timeStr})</span></span>
+                </div>
+                <span className="h-4 w-px bg-[#3ce7ff]/30 shrink-0" />
+                <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[10px] font-mono font-bold text-emerald-300 uppercase tracking-wider shrink-0 whitespace-nowrap">
+                  Season {currentYear} Active
+                </span>
               </div>
-              <span className="h-4 w-px bg-[#3ce7ff]/30" />
-              <span className="rounded-md bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[10px] font-mono font-bold text-emerald-300 uppercase tracking-wider">
-                Season {currentYear} Active
-              </span>
             </div>
           </div>
 
           {/* Contact & Registration Coordinates Box */}
           <div className="grid grid-cols-2 gap-4">
-            {/* Telegram Coordinate */}
+            {/* Telegram Coordinate - Separate from eFootball Handle */}
             <div className="rounded-2xl border border-[#3ce7ff]/25 bg-[#030733]/90 p-4">
               <div className="flex items-center gap-2 text-xs text-[#8e9bd4] font-mono mb-1.5">
                 <Send className="h-3.5 w-3.5 text-[#3ce7ff]" />
                 <span className="uppercase text-[10px] font-bold text-[#3ce7ff]">Telegram Channel</span>
               </div>
               <p className="font-mono text-sm font-bold text-white m-0 truncate">
-                {player.telegramUsername ? `@${player.telegramUsername.replace(/^@/, '')}` : `@${player.user}`}
+                {player.telegramUsername?.trim() ? (
+                  `@${player.telegramUsername.trim().replace(/^@/, '')}`
+                ) : (
+                  <span className="text-[#8e9bd4] font-normal italic">Not Provided</span>
+                )}
               </p>
               <span className="text-[9.5px] text-emerald-400 font-mono mt-1.5 block">
                 Official Matchday Dispatch

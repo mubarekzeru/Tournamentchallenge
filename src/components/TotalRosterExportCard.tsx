@@ -256,8 +256,11 @@ export const TotalRosterExportCard: React.FC<TotalRosterExportCardProps> = ({
                       {p.team}
                     </h4>
 
-                    {/* Username */}
-                    <p className="text-xs font-mono text-[#3ce7ff] font-bold truncate leading-tight mt-0.5">
+                    {/* Username - STRICT SINGLE LINE */}
+                    <p
+                      className="text-xs font-mono text-[#3ce7ff] font-bold truncate leading-tight mt-0.5 whitespace-nowrap"
+                      style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all', overflowWrap: 'normal' }}
+                    >
                       @{p.user}
                     </p>
 
@@ -270,12 +273,19 @@ export const TotalRosterExportCard: React.FC<TotalRosterExportCardProps> = ({
                       <span className="text-[#eaff28] font-bold">{reg.timeStr}</span>
                     </div>
 
-                    {/* Contact Badges */}
+                    {/* Contact Badges - Telegram strictly separate and only shown if provided */}
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
-                      <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#3ce7ff] border border-[#3ce7ff]/20 truncate max-w-[130px]">
-                        <Send className="h-2.5 w-2.5 shrink-0" />
-                        <span className="truncate">@{p.telegramUsername || p.user}</span>
-                      </span>
+                      {p.telegramUsername?.trim() ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#3ce7ff] border border-[#3ce7ff]/20 truncate max-w-[130px]">
+                          <Send className="h-2.5 w-2.5 shrink-0" />
+                          <span className="truncate">@{p.telegramUsername.trim().replace(/^@/, '')}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded bg-[#030930]/60 px-2 py-0.5 text-[#8e9bd4] border border-gray-700/40 text-[9px]">
+                          <Send className="h-2 w-2 shrink-0 opacity-50" />
+                          <span>No TG</span>
+                        </span>
+                      )}
 
                       {p.phoneNumber && (
                         <span className="inline-flex items-center gap-1 rounded bg-[#030930] px-2 py-0.5 text-[#eaff28] border border-[#eaff28]/20 truncate max-w-[125px]">

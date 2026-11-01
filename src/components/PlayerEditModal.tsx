@@ -336,7 +336,7 @@ export const PlayerEditModal: React.FC<PlayerEditModalProps> = ({
 
             <div>
               <label className="block text-[11px] font-semibold text-[#b9c4f0] mb-1" htmlFor="player-user">
-                Username * (Displayed in small tiny text)
+                eFootball Account Username * (Required)
               </label>
               <input
                 id="player-user"
@@ -347,9 +347,12 @@ export const PlayerEditModal: React.FC<PlayerEditModalProps> = ({
                   setUser(e.target.value);
                   if (errorMsg) setErrorMsg('');
                 }}
-                placeholder="e.g. A-Bilal, mubyzeru, yonas1934"
+                placeholder="e.g. Jal-_-maro, mubyzeru, A-Bilal"
                 className="w-full rounded-xl border border-[#3ce7ff]/60 bg-[#060a48] px-3.5 py-2 text-xs font-mono text-white placeholder-[#8e9bd4] focus:border-[#eaff28] focus:outline-none"
               />
+              <span className="block text-[9.5px] text-[#8e9bd4] mt-0.5 font-mono">
+                Official in-game player handle (completely separate from Telegram)
+              </span>
             </div>
 
             {/* Telegram Username & Phone Number Fields */}
@@ -357,7 +360,7 @@ export const PlayerEditModal: React.FC<PlayerEditModalProps> = ({
               <div>
                 <label className="block text-[11px] font-semibold text-[#3ce7ff] mb-1 flex items-center gap-1.5" htmlFor="player-telegram">
                   <Send className="h-3.5 w-3.5 text-[#3ce7ff]" />
-                  <span>Telegram Username</span>
+                  <span>Telegram Username (Separate)</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-[#3ce7ff]">
@@ -368,11 +371,13 @@ export const PlayerEditModal: React.FC<PlayerEditModalProps> = ({
                     type="text"
                     value={telegramUsername}
                     onChange={(e) => setTelegramUsername(e.target.value)}
-                    placeholder="username"
+                    placeholder="e.g. KitkatNov07 (leave blank if none)"
                     className="w-full rounded-xl border border-[#3ce7ff]/40 bg-[#060a48] pl-7 pr-3 py-2 text-xs font-mono text-white placeholder-[#8e9bd4] focus:border-[#eaff28] focus:outline-none"
                   />
                 </div>
-                <span className="block text-[9.5px] text-[#8e9bd4] mt-0.5 font-mono">For match coordination & announcements</span>
+                <span className="block text-[9.5px] text-[#8e9bd4] mt-0.5 font-mono">
+                  Separate Telegram account (not autofilled with eFootball name)
+                </span>
               </div>
 
               <div>

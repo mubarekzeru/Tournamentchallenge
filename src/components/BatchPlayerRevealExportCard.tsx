@@ -176,9 +176,12 @@ export const BatchPlayerRevealExportCard: React.FC<BatchPlayerRevealExportCardPr
                       <h3 className="font-sports text-xl sm:text-2xl font-black text-white truncate tracking-wide leading-tight my-0.5">
                         {p.team}
                       </h3>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        <span className="text-xs font-mono text-[#8e9bd4]">Handle:</span>
-                        <span className="font-sports text-base font-black text-[#eaff28] tracking-wide truncate">
+                      <div className="flex items-center gap-1.5 mt-1" style={{ whiteSpace: 'nowrap' }}>
+                        <span className="text-xs font-mono text-[#8e9bd4] whitespace-nowrap">Handle:</span>
+                        <span
+                          className="font-sports text-base font-black text-[#eaff28] tracking-wide truncate whitespace-nowrap"
+                          style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all', overflowWrap: 'normal' }}
+                        >
                           @{p.user}
                         </span>
                       </div>
@@ -193,7 +196,11 @@ export const BatchPlayerRevealExportCard: React.FC<BatchPlayerRevealExportCardPr
                         <span>Telegram</span>
                       </span>
                       <p className="font-mono text-xs font-bold text-white truncate mt-0.5">
-                        @{p.telegramUsername ? p.telegramUsername.replace(/^@/, '') : p.user}
+                        {p.telegramUsername?.trim() ? (
+                          `@${p.telegramUsername.trim().replace(/^@/, '')}`
+                        ) : (
+                          <span className="text-[#8e9bd4] font-normal italic">None</span>
+                        )}
                       </p>
                     </div>
 

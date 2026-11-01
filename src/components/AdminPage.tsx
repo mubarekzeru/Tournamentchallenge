@@ -1324,7 +1324,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                               <strong className="block text-xs sm:text-sm font-bold text-white truncate font-sports group-hover/player:text-[#eaff28] transition-colors">
                                 {p.team}
                               </strong>
-                              <span className="block text-[10.5px] text-[#3ce7ff] font-mono truncate leading-tight mt-0.5">
+                              <span
+                                className="block text-[10.5px] text-[#3ce7ff] font-mono truncate leading-tight mt-0.5 whitespace-nowrap"
+                                style={{ whiteSpace: 'nowrap', wordBreak: 'keep-all' }}
+                              >
                                 @{p.user}
                               </span>
                             </div>
@@ -1357,40 +1360,48 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 
                         {/* Contact Channels Row: Telegram & Phone Number */}
                         <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/15 space-y-1.5">
-                          {/* Telegram Handle */}
+                          {/* Telegram Handle - Strictly separate from eFootball username */}
                           <div className="flex items-center justify-between text-[10.5px] font-mono">
                             <span className="text-[#8e9bd4] flex items-center gap-1.5 shrink-0">
                               <Send className="h-3 w-3 text-[#3ce7ff]" />
                               <span>Telegram:</span>
                             </span>
                             <div className="flex items-center gap-1 min-w-0">
-                              <a
-                                href={`https://t.me/${(p.telegramUsername || p.user).replace(/^@/, '')}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-bold text-[#3ce7ff] truncate max-w-[120px] bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-2 py-0.5 rounded border border-[#3ce7ff]/30 transition-colors cursor-pointer"
-                                title={`Open Telegram profile: @${(p.telegramUsername || p.user).replace(/^@/, '')}`}
-                              >
-                                @{p.telegramUsername || p.user}
-                              </a>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  handleCopy(
-                                    `@${(p.telegramUsername || p.user).replace(/^@/, '')}`,
-                                    `tg-${p.id}`,
-                                    `@${(p.telegramUsername || p.user).replace(/^@/, '')}`
-                                  )
-                                }
-                                className="rounded p-1 text-[#3ce7ff] hover:bg-[#3ce7ff]/20 transition-colors shrink-0"
-                                title="Copy Telegram handle"
-                              >
-                                {copiedKey === `tg-${p.id}` ? (
-                                  <Check className="h-3 w-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
-                              </button>
+                              {p.telegramUsername?.trim() ? (
+                                <>
+                                  <a
+                                    href={`https://t.me/${p.telegramUsername.trim().replace(/^@/, '')}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-bold text-[#3ce7ff] truncate max-w-[120px] bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-2 py-0.5 rounded border border-[#3ce7ff]/30 transition-colors cursor-pointer"
+                                    title={`Open Telegram profile: @${p.telegramUsername.trim().replace(/^@/, '')}`}
+                                  >
+                                    @{p.telegramUsername.trim().replace(/^@/, '')}
+                                  </a>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleCopy(
+                                        `@${p.telegramUsername!.trim().replace(/^@/, '')}`,
+                                        `tg-${p.id}`,
+                                        `@${p.telegramUsername!.trim().replace(/^@/, '')}`
+                                      )
+                                    }
+                                    className="rounded p-1 text-[#3ce7ff] hover:bg-[#3ce7ff]/20 transition-colors shrink-0"
+                                    title="Copy Telegram handle"
+                                  >
+                                    {copiedKey === `tg-${p.id}` ? (
+                                      <Check className="h-3 w-3 text-emerald-400" />
+                                    ) : (
+                                      <Copy className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                </>
+                              ) : (
+                                <span className="text-[10px] text-[#8e9bd4] italic px-1.5 py-0.5 rounded bg-[#050842]/60">
+                                  Not Provided
+                                </span>
+                              )}
                             </div>
                           </div>
 
