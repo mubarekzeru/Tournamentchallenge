@@ -1137,10 +1137,13 @@ export default function App() {
               <>
                 <RegisteredPlayersSection
                   players={calculatedPlayers}
+                  fixtures={tournamentFixtures}
+                  results={results}
+                  tournamentFormat={tournamentFormat}
                   isRegistrationOpen={isRegistrationOpen}
                   isAdmin={isAdmin}
                   resultsCount={results.length}
-                  onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
+                  onOpenRegisterPlayer={handleOpenRegisterPlayer}
                   onSelectPlayer={(player) => setSelectedPlayer(player)}
                   onToggleRegistration={handleToggleRegistration}
                   onToast={addToast}
@@ -1210,10 +1213,13 @@ export default function App() {
               <>
                 <RegisteredPlayersSection
                   players={calculatedPlayers}
+                  fixtures={tournamentFixtures}
+                  results={results}
+                  tournamentFormat={tournamentFormat}
                   isRegistrationOpen={isRegistrationOpen}
                   isAdmin={isAdmin}
                   resultsCount={results.length}
-                  onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
+                  onOpenRegisterPlayer={handleOpenRegisterPlayer}
                   onSelectPlayer={(player) => setSelectedPlayer(player)}
                   onToggleRegistration={handleToggleRegistration}
                   onToast={addToast}
@@ -1257,6 +1263,8 @@ export default function App() {
         results={results}
         fixtures={tournamentFixtures}
         isAdmin={isAdmin}
+        isRegistrationOpen={isRegistrationOpen}
+        tournamentFormat={tournamentFormat}
         onClose={() => setSelectedPlayer(null)}
         onOpenEditPlayer={handleOpenEditPlayer}
         onSelectPlayer={(player) => setSelectedPlayer(player)}

@@ -125,6 +125,9 @@ export function getPlayerMatchHistory(user: string, results: MatchResult[]) {
       let outcome: 'W' | 'D' | 'L' = 'D';
       if (myScore > opponentScore) outcome = 'W';
       else if (myScore < opponentScore) outcome = 'L';
+      else if (r.penaltyWinner) {
+        outcome = r.penaltyWinner === user ? 'W' : 'L';
+      }
 
       return {
         ...r,
@@ -134,21 +137,162 @@ export function getPlayerMatchHistory(user: string, results: MatchResult[]) {
         opponent,
         outcome,
       };
+    })
+    .sort((a, b) => {
+      if (b.matchday !== a.matchday) return b.matchday - a.matchday;
+      return (b.submitted_at || '').localeCompare(a.submitted_at || '');
     });
 }
 
 export function getPlayerUpcomingFixtures(user: string, fixtures: Fixture[], results: MatchResult[]) {
-  const playedMatches = new Set(
-    results
-      .filter((r) => !r.isPostponed)
-      .map((r) => `${r.matchday}-${r.home_user}-${r.away_user}`)
-  );
+  const playedKeys = new Set<string>();
+  results
+    .filter((r) => !r.isPostponed)
+    .forEach((r) => {
+      playedKeys.add(`${r.matchday}-${r.home_user}-${r.away_user}`);
+      playedKeys.add(`${r.matchday}-${r.away_user}-${r.home_user}`);
+      if (r.isKnockout) {
+        playedKeys.add(`ko-${r.home_user}-${r.away_user}`);
+        playedKeys.add(`ko-${r.away_user}-${r.home_user}`);
+      }
+    });
 
-  return fixtures.filter(
-    (f) =>
-      (f.home === user || f.away === user) &&
-      !playedMatches.has(`${f.matchday}-${f.home}-${f.away}`)
-  );
+  return fixtures
+    .filter((f) => {
+      if (f.home !== user && f.away !== user) return false;
+      if (f.isKnockout && playedKeys.has(`ko-${f.home}-${f.away}`)) return false;
+      return !playedKeys.has(`${f.matchday}-${f.home}-${f.away}`);
+    })
+    .sort((a, b) => a.matchday - b.matchday);
+}
+
+export interface PlayerStatusCondition {
+  statusLabel: string;
+  statusTone: 'champion' | 'qualified' | 'qualifying' | 'active' | 'ready' | 'eliminated';
+  conditionLabel: string;
+  conditionArrow: '↑↑' | '↗' | '→' | '↘' | '↓';
+  conditionTone: 'peak' | 'good' | 'steady' | 'pressure' | 'neutral';
+  conditionNote: string;
+}
+
+export function getPlayerStatusAndCondition(
+  player: Player,
+  upcomingFixtures: Fixture[],
+  matchHistory: ReturnType<typeof getPlayerMatchHistory>,
+  tournamentFormat?: string
+): PlayerStatusCondition {
+  const played = player.played || matchHistory.length;
+  const winRate = played > 0 ? Math.round((player.w / played) * 100) : 0;
+  const recentForm = (player.form && player.form.length > 0
+    ? player.form
+    : [...matchHistory].reverse().map((m) => m.outcome)
+  ).slice(-5);
+  const lastOutcome = recentForm[recentForm.length - 1];
+  const streak = player.winStreak ?? 0;
+
+  // 1. Determine Tournament Status
+  let statusLabel = 'Active Contender';
+  let statusTone: PlayerStatusCondition['statusTone'] = 'active';
+
+  const isKnockoutFormat =
+    tournamentFormat === 'knockout' ||
+    tournamentFormat === 'knockout_cup' ||
+    tournamentFormat === 'group_knockout';
+
+  if (player.qualificationStatus === 'eliminated') {
+    statusLabel = 'Eliminated';
+    statusTone = 'eliminated';
+  } else if (player.qualificationStatus === 'qualified') {
+    if (player.rank === 1 && upcomingFixtures.length === 0 && played > 0) {
+      statusLabel = 'Champion 🏆';
+      statusTone = 'champion';
+    } else {
+      statusLabel = 'Qualified';
+      statusTone = 'qualified';
+    }
+  } else if (player.qualificationStatus === 'qualifying') {
+    statusLabel = 'Qualifying Spot';
+    statusTone = 'qualifying';
+  } else if (isKnockoutFormat) {
+    if (upcomingFixtures.length === 0 && played > 0) {
+      if (player.rank === 1) {
+        statusLabel = 'Champion 🏆';
+        statusTone = 'champion';
+      } else {
+        statusLabel = 'Eliminated';
+        statusTone = 'eliminated';
+      }
+    } else if (played === 0 && upcomingFixtures.length > 0) {
+      statusLabel = 'Match Scheduled';
+      statusTone = 'ready';
+    } else if (upcomingFixtures.length > 0) {
+      statusLabel = 'In Knockout Race';
+      statusTone = 'active';
+    }
+  } else {
+    // League or general format
+    if (played === 0 && upcomingFixtures.length > 0) {
+      statusLabel = 'Scheduled';
+      statusTone = 'ready';
+    } else if (upcomingFixtures.length === 0 && played > 0) {
+      statusLabel = player.rank === 1 ? 'League Champion 🏆' : `Finished #${player.rank}`;
+      statusTone = player.rank === 1 ? 'champion' : 'qualified';
+    } else if (player.rank === 1 && played > 0) {
+      statusLabel = 'Table Leader #1';
+      statusTone = 'champion';
+    } else {
+      statusLabel = `Active · Rank #${player.rank}`;
+      statusTone = 'active';
+    }
+  }
+
+  // 2. Determine Player Condition / Form
+  let conditionLabel = 'Match Ready';
+  let conditionArrow: PlayerStatusCondition['conditionArrow'] = '→';
+  let conditionTone: PlayerStatusCondition['conditionTone'] = 'neutral';
+  let conditionNote = 'Awaiting opening match';
+
+  if (played > 0) {
+    const recent3 = recentForm.slice(-3);
+    const recentWins = recent3.filter((r) => r === 'W').length;
+    const recentLosses = recent3.filter((r) => r === 'L').length;
+
+    if (streak >= 3 || (recent3.length >= 2 && recentWins === recent3.length)) {
+      conditionLabel = 'Peak Form';
+      conditionArrow = '↑↑';
+      conditionTone = 'peak';
+      conditionNote = streak >= 2 ? `${streak}W Win Streak` : 'Unbeaten Surge';
+    } else if (winRate >= 55 || (lastOutcome === 'W' && player.gd >= 0)) {
+      conditionLabel = 'Good Form';
+      conditionArrow = '↗';
+      conditionTone = 'good';
+      conditionNote = `${winRate}% Win Rate`;
+    } else if (recentLosses >= 2 && lastOutcome === 'L' && player.gd < 0) {
+      conditionLabel = 'Poor Form';
+      conditionArrow = '↓';
+      conditionTone = 'pressure';
+      conditionNote = 'Needs Bounce Back';
+    } else if (lastOutcome === 'L' || winRate < 35) {
+      conditionLabel = 'Under Pressure';
+      conditionArrow = '↘';
+      conditionTone = 'pressure';
+      conditionNote = `${winRate}% Win Rate`;
+    } else {
+      conditionLabel = 'Steady Form';
+      conditionArrow = '→';
+      conditionTone = 'steady';
+      conditionNote = `${player.w}W-${player.d}D-${player.l}L`;
+    }
+  }
+
+  return {
+    statusLabel,
+    statusTone,
+    conditionLabel,
+    conditionArrow,
+    conditionTone,
+    conditionNote,
+  };
 }
 
 export interface PlayerAdvancedAverages {

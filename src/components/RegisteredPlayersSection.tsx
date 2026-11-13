@@ -14,13 +14,25 @@ import {
   Unlock,
   ChevronRight,
   Eye,
+  Trophy,
+  Activity,
+  Clock,
 } from 'lucide-react';
-import { Player } from '../types/tournament';
+import { Player, Fixture, MatchResult, TournamentFormat } from '../types/tournament';
 import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
+import {
+  getPlayerAdvancedAverages,
+  getPlayerMatchHistory,
+  getPlayerUpcomingFixtures,
+  getPlayerStatusAndCondition,
+} from '../utils/standings';
 import { EFootballLogo } from './EFootballLogo';
 
 interface RegisteredPlayersSectionProps {
   players: Player[];
+  fixtures?: Fixture[];
+  results?: MatchResult[];
+  tournamentFormat?: TournamentFormat;
   isRegistrationOpen: boolean;
   isAdmin: boolean;
   resultsCount?: number;
@@ -32,6 +44,9 @@ interface RegisteredPlayersSectionProps {
 
 export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> = ({
   players,
+  fixtures = [],
+  results = [],
+  tournamentFormat,
   isRegistrationOpen,
   isAdmin,
   resultsCount = 0,
@@ -42,6 +57,11 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const playerMap = useMemo(
+    () => new Map<string, Player>(players.map((pl) => [pl.user, pl])),
+    [players]
+  );
 
   const handleCopy = (text: string, key: string, label?: string) => {
     try {
@@ -215,6 +235,23 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredPlayers.map((p, idx) => {
               const reg = getPlayerRegistrationTimestamp(p);
+              const upcoming = !isRegistrationOpen
+                ? getPlayerUpcomingFixtures(p.user, fixtures, results)
+                : [];
+              const history = !isRegistrationOpen
+                ? getPlayerMatchHistory(p.user, results)
+                : [];
+              const adv = !isRegistrationOpen
+                ? getPlayerAdvancedAverages(p.user, results)
+                : null;
+              const statusCond = !isRegistrationOpen
+                ? getPlayerStatusAndCondition(p, upcoming, history, tournamentFormat)
+                : null;
+              const lastMatch = history[0] || null;
+              const recentForm = (p.form && p.form.length > 0
+                ? p.form
+                : [...history].reverse().map((m) => m.outcome)
+              ).slice(-5);
 
               return (
                 <div
@@ -222,7 +259,7 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
                   className="flex flex-col justify-between rounded-2xl border border-[#3ce7ff]/30 bg-gradient-to-b from-[#071056] to-[#040836] p-4 transition-all hover:border-[#eaff28] hover:shadow-[0_0_20px_rgba(234,255,40,0.15)] group relative"
                 >
                   <div>
-                    {/* Top Row: Avatar, Club Name, Seed/Number */}
+                    {/* Top Row: Avatar, Club Name, Seed/Rank Number */}
                     <div className="flex items-start justify-between gap-3">
                       <div
                         role="button"
@@ -260,7 +297,7 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
                       </div>
 
                       <span className="rounded-lg bg-[#050842] border border-[#3ce7ff]/30 px-2 py-0.5 text-[10px] font-mono font-bold text-[#8e9bd4] shrink-0">
-                        #{idx + 1}
+                        #{!isRegistrationOpen ? p.rank : idx + 1}
                       </span>
                     </div>
 
@@ -344,6 +381,190 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
                         )}
                       </div>
                     </div>
+
+                    {/* POST-REGISTRATION ONLY: Status, Condition, Goals Scored/Conceded, Upcoming Fixtures & Last Result */}
+                    {!isRegistrationOpen && statusCond && adv && (
+                      <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/20 space-y-2.5">
+                        {/* Status & Condition Badges */}
+                        <div className="flex flex-wrap items-center justify-between gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[9.5px] font-mono font-bold uppercase ${
+                              statusCond.statusTone === 'champion'
+                                ? 'border-[#eaff28]/70 bg-[#eaff28]/15 text-[#eaff28]'
+                                : statusCond.statusTone === 'qualified'
+                                ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-300'
+                                : statusCond.statusTone === 'qualifying'
+                                ? 'border-[#3ce7ff]/60 bg-[#3ce7ff]/15 text-[#3ce7ff]'
+                                : statusCond.statusTone === 'eliminated'
+                                ? 'border-rose-500/60 bg-rose-500/15 text-rose-300'
+                                : statusCond.statusTone === 'ready'
+                                ? 'border-amber-400/60 bg-amber-500/15 text-amber-300'
+                                : 'border-[#3ce7ff]/40 bg-[#050842] text-[#3ce7ff]'
+                            }`}
+                          >
+                            <Trophy className="h-2.5 w-2.5 shrink-0" />
+                            <span>{statusCond.statusLabel}</span>
+                          </span>
+
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[9.5px] font-mono font-bold uppercase ${
+                              statusCond.conditionTone === 'peak'
+                                ? 'border-[#eaff28]/70 bg-[#eaff28]/15 text-[#eaff28]'
+                                : statusCond.conditionTone === 'good'
+                                ? 'border-emerald-400/60 bg-emerald-500/15 text-emerald-300'
+                                : statusCond.conditionTone === 'pressure'
+                                ? 'border-rose-400/60 bg-rose-500/15 text-rose-300'
+                                : statusCond.conditionTone === 'steady'
+                                ? 'border-[#3ce7ff]/60 bg-[#3ce7ff]/15 text-[#3ce7ff]'
+                                : 'border-[#8e9bd4]/40 bg-[#050842] text-[#b9c4f0]'
+                            }`}
+                            title={statusCond.conditionNote}
+                          >
+                            <Activity className="h-2.5 w-2.5 shrink-0" />
+                            <span>
+                              {statusCond.conditionArrow} {statusCond.conditionLabel}
+                            </span>
+                          </span>
+                        </div>
+
+                        {/* Total Goals Scored / Conceded / GD / PTS Strip */}
+                        <div className="grid grid-cols-4 gap-1 text-center">
+                          <div className="rounded-lg border border-emerald-400/25 bg-[#050842]/80 py-1 px-1">
+                            <span className="block text-[8px] font-mono uppercase text-emerald-300">
+                              Scored
+                            </span>
+                            <span className="font-sports text-xs font-black text-[#eaff28]">
+                              {adv.goalsScored}
+                            </span>
+                          </div>
+                          <div className="rounded-lg border border-rose-400/25 bg-[#050842]/80 py-1 px-1">
+                            <span className="block text-[8px] font-mono uppercase text-rose-300">
+                              Conceded
+                            </span>
+                            <span className="font-sports text-xs font-black text-rose-300">
+                              {adv.goalsConceded}
+                            </span>
+                          </div>
+                          <div className="rounded-lg border border-[#3ce7ff]/20 bg-[#050842]/80 py-1 px-1">
+                            <span className="block text-[8px] font-mono uppercase text-[#8e9bd4]">
+                              GD
+                            </span>
+                            <span
+                              className={`font-sports text-xs font-black ${
+                                p.gd >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                              }`}
+                            >
+                              {p.gd > 0 ? `+${p.gd}` : p.gd}
+                            </span>
+                          </div>
+                          <div className="rounded-lg border border-[#3ce7ff]/20 bg-[#050842]/80 py-1 px-1">
+                            <span className="block text-[8px] font-mono uppercase text-[#3ce7ff]">
+                              PTS
+                            </span>
+                            <span className="font-sports text-xs font-black text-white">
+                              {p.points}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Recent Form Badges (if played) */}
+                        {recentForm.length > 0 && (
+                          <div className="flex items-center justify-between text-[10px] font-mono">
+                            <span className="text-[#8e9bd4]">
+                              Record: <strong className="text-white">{p.w}W-{p.d}D-{p.l}L</strong>
+                            </span>
+                            <div className="flex items-center gap-0.5">
+                              {recentForm.map((res, fIdx) => (
+                                <span
+                                  key={fIdx}
+                                  className={`inline-flex h-4 w-4 items-center justify-center rounded text-[8.5px] font-black border ${
+                                    res === 'W'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+                                      : res === 'D'
+                                      ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
+                                      : 'bg-rose-500/20 text-rose-300 border-rose-400/50'
+                                  }`}
+                                >
+                                  {res}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Upcoming Fixtures (Up to 2 shown directly on card) */}
+                        <div className="rounded-xl border border-[#3ce7ff]/20 bg-[#050842]/75 p-2 space-y-1">
+                          <div className="flex items-center justify-between text-[9.5px] font-mono uppercase text-[#3ce7ff]">
+                            <span className="flex items-center gap-1 font-bold">
+                              <Clock className="h-2.5 w-2.5" />
+                              <span>Upcoming ({upcoming.length})</span>
+                            </span>
+                            {upcoming.length > 2 && (
+                              <span className="text-[9px] text-[#eaff28]">+{upcoming.length - 2} more</span>
+                            )}
+                          </div>
+                          {upcoming.length > 0 ? (
+                            upcoming.slice(0, 2).map((uf) => {
+                              const isHome = uf.home === p.user;
+                              const oppUser = isHome ? uf.away : uf.home;
+                              const oppName = playerMap.get(oppUser)?.team || oppUser;
+                              return (
+                                <div
+                                  key={uf.id}
+                                  className="flex items-center justify-between gap-1.5 text-[10.5px] font-mono bg-[#071056]/70 rounded px-1.5 py-0.5"
+                                >
+                                  <span className="text-white truncate">
+                                    {isHome ? 'vs' : '@'} <strong className="text-[#eaff28]">{oppName}</strong>
+                                  </span>
+                                  <span className="text-[9px] text-[#3ce7ff] shrink-0">
+                                    {uf.stage ? uf.stage : `MD ${uf.matchday}`}
+                                  </span>
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="text-[10px] font-mono text-[#8e9bd4] italic m-0">
+                              No upcoming fixtures
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Last Match Result */}
+                        <div className="rounded-xl border border-[#3ce7ff]/20 bg-[#050842]/75 p-2">
+                          <span className="block text-[9.5px] font-mono font-bold uppercase text-[#b9c4f0] mb-1">
+                            Last Match Result
+                          </span>
+                          {lastMatch ? (
+                            <div className="flex items-center justify-between gap-1.5 text-[10.5px] font-mono bg-[#071056]/70 rounded px-1.5 py-1">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span
+                                  className={`inline-flex h-4 w-4 items-center justify-center rounded text-[9px] font-black shrink-0 border ${
+                                    lastMatch.outcome === 'W'
+                                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/50'
+                                      : lastMatch.outcome === 'D'
+                                      ? 'bg-amber-500/20 text-amber-300 border-amber-400/50'
+                                      : 'bg-rose-500/20 text-rose-300 border-rose-400/50'
+                                  }`}
+                                >
+                                  {lastMatch.outcome}
+                                </span>
+                                <span className="text-white truncate">
+                                  {lastMatch.isHome ? 'vs' : '@'}{' '}
+                                  {playerMap.get(lastMatch.opponent)?.team || lastMatch.opponent}
+                                </span>
+                              </div>
+                              <span className="font-sports font-black text-[#eaff28] shrink-0">
+                                {lastMatch.myScore}-{lastMatch.opponentScore}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-[10px] font-mono text-[#8e9bd4] italic m-0">
+                              No matches played yet
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Bottom Row: Registration Date & Time Stamp */}
