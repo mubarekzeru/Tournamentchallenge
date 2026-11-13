@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   INITIAL_PLAYERS,
   generateTournamentFixtures,
@@ -234,6 +234,8 @@ export default function App() {
     [adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, isRegistrationEnded]
   );
 
+  const hasFirestoreDataRef = useRef(false);
+
   // Real-time synchronization via Firebase Firestore across all devices and links
   useEffect(() => {
     let isMounted = true;
@@ -241,6 +243,7 @@ export default function App() {
     // 1. Subscribe to live Firestore updates across all devices
     const unsubscribe = subscribeTournamentData((data) => {
       if (!isMounted) return;
+      hasFirestoreDataRef.current = true;
       if (data.players && Array.isArray(data.players)) {
         setBasePlayers(data.players);
         try {
@@ -293,11 +296,11 @@ export default function App() {
       }
     });
 
-    // 2. Fetch local API backup if offline
+    // 2. Fetch local API backup only if Firestore has not delivered live data
     fetch('/api/tournament')
       .then((res) => res.json())
       .then((json) => {
-        if (!isMounted) return;
+        if (!isMounted || hasFirestoreDataRef.current) return;
         if (json.success && json.data) {
           if (json.data.players && Array.isArray(json.data.players)) {
             setBasePlayers((prev) => (prev.length === 0 ? json.data.players : prev));
@@ -377,6 +380,8 @@ export default function App() {
         adminPasscode: adminPasscode,
         tournamentFormat: newFormat,
         groupStageConfig: groupStageConfig,
+        clockConfig: matchClockConfig,
+        isRegistrationEnded: isRegistrationEnded,
       });
 
       const formatName =
@@ -388,7 +393,7 @@ export default function App() {
 
       addToast(`⚡ Play style switched to ${formatName}!`, 'success');
     },
-    [basePlayers, results, adminPasscode, groupStageConfig, addToast]
+    [basePlayers, results, adminPasscode, groupStageConfig, matchClockConfig, isRegistrationEnded, addToast]
   );
 
   const handleUpdateGroupConfig = useCallback(
@@ -403,10 +408,12 @@ export default function App() {
         adminPasscode: adminPasscode,
         tournamentFormat: tournamentFormat,
         groupStageConfig: newConfig,
+        clockConfig: matchClockConfig,
+        isRegistrationEnded: isRegistrationEnded,
       });
       addToast('Group stage settings updated!', 'success');
     },
-    [basePlayers, results, adminPasscode, tournamentFormat, addToast]
+    [basePlayers, results, adminPasscode, tournamentFormat, matchClockConfig, isRegistrationEnded, addToast]
   );
 
   const totalMatchdays = useMemo(() => {
@@ -482,8 +489,6 @@ export default function App() {
       setActiveSection(hasTable ? 'table' : 'hub');
     } else if (activeSection === 'table' && !hasTable) {
       setActiveSection(hasKnockout ? 'bracket' : 'hub');
-    } else if (activeSection === 'players') {
-      setActiveSection('hub');
     }
   }, [tournamentFormat, activeSection]);
 
@@ -500,13 +505,23 @@ export default function App() {
       tournamentFormat === 'group_stage';
     const hasTable = !isPureKnockout;
 
-    const sectionList: { id: SectionId; elementId: string }[] = [
-      { id: 'hub', elementId: 'challenge' },
-      { id: 'fixtures', elementId: 'fixtures' },
-      ...(hasKnockout ? [{ id: 'bracket' as SectionId, elementId: 'bracket' }] : []),
-      ...(hasTable ? [{ id: 'table' as SectionId, elementId: 'table' }] : []),
-      { id: 'rules', elementId: 'rules' },
-    ];
+    const sectionList: { id: SectionId; elementId: string }[] = isRegistrationOpen
+      ? [
+          { id: 'hub', elementId: 'challenge' },
+          { id: 'players', elementId: 'registered-players' },
+          { id: 'fixtures', elementId: 'fixtures' },
+          ...(hasKnockout ? [{ id: 'bracket' as SectionId, elementId: 'bracket' }] : []),
+          ...(hasTable ? [{ id: 'table' as SectionId, elementId: 'table' }] : []),
+          { id: 'rules', elementId: 'rules' },
+        ]
+      : [
+          { id: 'hub', elementId: 'challenge' },
+          { id: 'fixtures', elementId: 'fixtures' },
+          ...(hasKnockout ? [{ id: 'bracket' as SectionId, elementId: 'bracket' }] : []),
+          ...(hasTable ? [{ id: 'table' as SectionId, elementId: 'table' }] : []),
+          { id: 'players', elementId: 'registered-players' },
+          { id: 'rules', elementId: 'rules' },
+        ];
 
     const handleScroll = () => {
       // Check if user reached bottom of page
@@ -531,7 +546,7 @@ export default function App() {
 
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
-  }, [activeSection, tournamentFormat]);
+  }, [activeSection, tournamentFormat, isRegistrationOpen]);
 
   // Section navigation helper
   const handleNavigateSection = (section: SectionId) => {
@@ -568,30 +583,38 @@ export default function App() {
   // Toggle player registration open / ended
   const handleToggleRegistration = useCallback(
     (ended?: boolean) => {
-      setIsRegistrationEnded((prev) => {
-        const nextVal = ended !== undefined ? ended : !prev;
-        try {
-          localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(nextVal));
-        } catch (e) {}
-        saveTournamentDataToFirestore({
-          players: basePlayers,
-          results,
-          adminPasscode,
-          tournamentFormat,
-          groupStageConfig,
-          clockConfig: matchClockConfig,
-          isRegistrationEnded: nextVal,
-        });
+      const nextVal = ended !== undefined ? ended : !isRegistrationEnded;
+      if (!nextVal && results.length > 0) {
         addToast(
-          nextVal
-            ? 'Player registration closed! Upcoming matches and pairings are now revealed.'
-            : 'Player registration reopened! Upcoming matches are hidden until registration ends.',
-          'info'
+          'Cannot reopen registration because match results have already been recorded. Reset scores to reopen.',
+          'error'
         );
-        return nextVal;
+        return;
+      }
+
+      setIsRegistrationEnded(nextVal);
+      try {
+        localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(nextVal));
+      } catch (e) {}
+
+      saveTournamentDataToFirestore({
+        players: basePlayers,
+        results,
+        adminPasscode,
+        tournamentFormat,
+        groupStageConfig,
+        clockConfig: matchClockConfig,
+        isRegistrationEnded: nextVal,
       });
+
+      addToast(
+        nextVal
+          ? 'Player registration ended! Upcoming matches, bracket, and schedule are now revealed on the home page.'
+          : 'Player registration reopened! Upcoming matches are hidden until registration ends.',
+        'info'
+      );
     },
-    [basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, addToast]
+    [isRegistrationEnded, basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, addToast]
   );
 
   // Admin authentication handlers
@@ -874,10 +897,12 @@ export default function App() {
   const handleResetData = () => {
     if (window.confirm('Are you sure you want to reset all match results? This will re-open player registrations.')) {
       setResults([]);
+      setIsRegistrationEnded(false);
       try {
         localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify([]));
+        localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, 'false');
       } catch (e) {}
-      syncToServer(basePlayers, []);
+      syncToServer(basePlayers, [], undefined, undefined, undefined, undefined, false);
       addToast('All match records reset! Registrations re-opened.');
     }
   };
@@ -1107,21 +1132,26 @@ export default function App() {
               onSelectPlayer={(player) => setSelectedPlayer(player)}
             />
 
-            {/* Current Registered Competitors Roster Showcase */}
-            <RegisteredPlayersSection
-              players={calculatedPlayers}
-              isRegistrationOpen={isRegistrationOpen}
-              isAdmin={isAdmin}
-              onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
-              onSelectPlayer={(player) => setSelectedPlayer(player)}
-              onToggleRegistration={handleToggleRegistration}
-              onToast={addToast}
-            />
+            {/* When registration is open, keep Current Registered Players prominently at the top */}
+            {isRegistrationOpen && (
+              <>
+                <RegisteredPlayersSection
+                  players={calculatedPlayers}
+                  isRegistrationOpen={isRegistrationOpen}
+                  isAdmin={isAdmin}
+                  resultsCount={results.length}
+                  onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
+                  onSelectPlayer={(player) => setSelectedPlayer(player)}
+                  onToggleRegistration={handleToggleRegistration}
+                  onToast={addToast}
+                />
 
-            {/* How The Challenge Works */}
-            <HowItWorks />
+                {/* How The Challenge Works */}
+                <HowItWorks />
+              </>
+            )}
 
-            {/* Fixtures & Results (Defaults to "All" with search) */}
+            {/* Fixtures & Results (Immediately below Hero once registration has ended) */}
             <FixturesSection
               fixtures={tournamentFixtures}
               results={results}
@@ -1174,6 +1204,25 @@ export default function App() {
               results={results}
               onSelectPlayer={(player) => setSelectedPlayer(player)}
             />
+
+            {/* When registration has ended, display Current Registered Players below active matches & bracket (still accessible via Navbar Players tab) */}
+            {!isRegistrationOpen && (
+              <>
+                <RegisteredPlayersSection
+                  players={calculatedPlayers}
+                  isRegistrationOpen={isRegistrationOpen}
+                  isAdmin={isAdmin}
+                  resultsCount={results.length}
+                  onOpenRegisterPlayer={() => setIsPlayerEditModalOpen(true)}
+                  onSelectPlayer={(player) => setSelectedPlayer(player)}
+                  onToggleRegistration={handleToggleRegistration}
+                  onToast={addToast}
+                />
+
+                {/* How The Challenge Works */}
+                <HowItWorks />
+              </>
+            )}
 
             {/* Rules & Fair Play */}
             <RulesSection />

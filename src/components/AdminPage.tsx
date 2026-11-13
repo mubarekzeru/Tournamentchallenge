@@ -1196,20 +1196,31 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   {onToggleRegistration && (
                     <button
                       type="button"
-                      onClick={() => onToggleRegistration(!isRegistrationOpen)}
+                      onClick={() => onToggleRegistration(isRegistrationOpen)}
+                      disabled={!isRegistrationOpen && results.length > 0}
                       className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-extrabold uppercase tracking-wider transition-all border ${
-                        isRegistrationOpen
-                          ? 'border-amber-400/60 bg-amber-500/20 text-amber-300 hover:bg-amber-400 hover:text-[#050842] shadow-md'
-                          : 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-400 hover:text-[#050842] shadow-md'
+                        !isRegistrationOpen && results.length > 0
+                          ? 'border-gray-600 bg-gray-800/70 text-gray-400 cursor-not-allowed opacity-60'
+                          : isRegistrationOpen
+                          ? 'border-amber-400/60 bg-amber-500/20 text-amber-300 hover:bg-amber-400 hover:text-[#050842] shadow-md cursor-pointer'
+                          : 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-400 hover:text-[#050842] shadow-md cursor-pointer'
                       }`}
                       title={
-                        isRegistrationOpen
+                        !isRegistrationOpen && results.length > 0
+                          ? 'Registration is locked because match results have already been recorded. Reset scores to reopen.'
+                          : isRegistrationOpen
                           ? 'End player registration now to reveal upcoming match pairings and schedule'
                           : 'Reopen player registration (upcoming matches will be hidden until ended)'
                       }
                     >
                       {isRegistrationOpen ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
-                      <span>{isRegistrationOpen ? 'End Registration' : 'Reopen Registration'}</span>
+                      <span>
+                        {isRegistrationOpen
+                          ? 'End Registration'
+                          : results.length > 0
+                          ? 'Locked (Matches Started)'
+                          : 'Reopen Registration'}
+                      </span>
                     </button>
                   )}
 

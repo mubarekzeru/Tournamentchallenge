@@ -124,20 +124,52 @@ app.post('/api/admin/change-password', (req, res) => {
   });
 });
 
-// POST update tournament data (players, profile pictures, results)
+// POST update tournament data (players, profile pictures, results, registration & schedule config)
 app.post('/api/tournament', (req, res) => {
-  const { players, results } = req.body;
+  const {
+    players,
+    results,
+    adminPasscode,
+    tournamentFormat,
+    groupStageConfig,
+    clockConfig,
+    isRegistrationEnded,
+  } = req.body;
   if (!players || !results) {
     return res.status(400).json({ success: false, error: 'Missing players or results' });
   }
 
   const existingData = loadTournamentData();
-  const payload = {
+  const payload: Record<string, any> = {
     players,
     results,
-    adminPasscode: existingData?.adminPasscode || DEFAULT_ADMIN_PASSCODE,
+    adminPasscode: adminPasscode || existingData?.adminPasscode || DEFAULT_ADMIN_PASSCODE,
     updatedAt: new Date().toISOString(),
   };
+
+  if (tournamentFormat !== undefined) {
+    payload.tournamentFormat = tournamentFormat;
+  } else if (existingData?.tournamentFormat !== undefined) {
+    payload.tournamentFormat = existingData.tournamentFormat;
+  }
+
+  if (groupStageConfig !== undefined) {
+    payload.groupStageConfig = groupStageConfig;
+  } else if (existingData?.groupStageConfig !== undefined) {
+    payload.groupStageConfig = existingData.groupStageConfig;
+  }
+
+  if (clockConfig !== undefined) {
+    payload.clockConfig = clockConfig;
+  } else if (existingData?.clockConfig !== undefined) {
+    payload.clockConfig = existingData.clockConfig;
+  }
+
+  if (typeof isRegistrationEnded === 'boolean') {
+    payload.isRegistrationEnded = isRegistrationEnded;
+  } else if (typeof existingData?.isRegistrationEnded === 'boolean') {
+    payload.isRegistrationEnded = existingData.isRegistrationEnded;
+  }
 
   const saved = saveTournamentData(payload);
   if (!saved) {

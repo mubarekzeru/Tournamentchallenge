@@ -23,6 +23,7 @@ interface RegisteredPlayersSectionProps {
   players: Player[];
   isRegistrationOpen: boolean;
   isAdmin: boolean;
+  resultsCount?: number;
   onOpenRegisterPlayer?: () => void;
   onSelectPlayer?: (player: Player) => void;
   onToggleRegistration?: (ended?: boolean) => void;
@@ -33,6 +34,7 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
   players,
   isRegistrationOpen,
   isAdmin,
+  resultsCount = 0,
   onOpenRegisterPlayer,
   onSelectPlayer,
   onToggleRegistration,
@@ -130,14 +132,19 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
             {isAdmin && onToggleRegistration && (
               <button
                 type="button"
-                onClick={() => onToggleRegistration(!isRegistrationOpen ? false : true)}
-                className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-mono font-bold uppercase tracking-wider transition-all cursor-pointer ${
-                  isRegistrationOpen
-                    ? 'border-amber-400/60 bg-amber-950/70 text-amber-300 hover:bg-amber-900/80 hover:text-white'
-                    : 'border-emerald-500/60 bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/80 hover:text-white'
+                onClick={() => onToggleRegistration(isRegistrationOpen)}
+                disabled={!isRegistrationOpen && resultsCount > 0}
+                className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-mono font-bold uppercase tracking-wider transition-all ${
+                  !isRegistrationOpen && resultsCount > 0
+                    ? 'border-gray-600 bg-gray-800/70 text-gray-400 cursor-not-allowed opacity-60'
+                    : isRegistrationOpen
+                    ? 'border-amber-400/60 bg-amber-950/70 text-amber-300 hover:bg-amber-900/80 hover:text-white cursor-pointer'
+                    : 'border-emerald-500/60 bg-emerald-950/70 text-emerald-300 hover:bg-emerald-900/80 hover:text-white cursor-pointer'
                 }`}
                 title={
-                  isRegistrationOpen
+                  !isRegistrationOpen && resultsCount > 0
+                    ? 'Locked because match results have already been recorded'
+                    : isRegistrationOpen
                     ? 'End registration and reveal upcoming matches on the main page'
                     : 'Re-open registration (hides upcoming matches again)'
                 }
@@ -150,7 +157,7 @@ export const RegisteredPlayersSection: React.FC<RegisteredPlayersSectionProps> =
                 ) : (
                   <>
                     <Unlock className="h-3.5 w-3.5" />
-                    <span>Re-Open Registration</span>
+                    <span>{resultsCount > 0 ? 'Locked (Matches Started)' : 'Re-Open Registration'}</span>
                   </>
                 )}
               </button>
