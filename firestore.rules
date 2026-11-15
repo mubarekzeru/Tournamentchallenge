@@ -1,11 +1,17 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    
+    // Anyone can view tournaments, but only logged-in users can edit them
     match /tournament/{tournamentId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if request.auth != null;
     }
+    
+    // Anyone can view profiles, but users can only edit their OWN profile
     match /users/{userId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
     }
   }
 }
