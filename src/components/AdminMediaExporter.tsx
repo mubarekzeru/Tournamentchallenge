@@ -67,6 +67,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
   const [activeTab, setActiveTab] = useState<ExportTab>('results');
   const [isExporting, setIsExporting] = useState(false);
   const [selectedMatchday, setSelectedMatchday] = useState<number | 'upcoming'>('upcoming');
+  const [selectedResultsMatchday, setSelectedResultsMatchday] = useState<number | 'all'>('all');
   const [selectedGroup, setSelectedGroup] = useState<string>('all');
   const [selectedRevealPlayerId, setSelectedRevealPlayerId] = useState<string>('');
   const [revealMode, setRevealMode] = useState<'single' | 'batch'>('single');
@@ -180,6 +181,17 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
       .filter((r) => !r.isPostponed)
       .sort((a, b) => (b.submitted_at || '').localeCompare(a.submitted_at || ''));
   }, [results]);
+
+  const completedMatchdays = useMemo(() => {
+    return Array.from(new Set(completedResults.map((r) => r.matchday))).sort(
+      (a, b) => a - b
+    );
+  }, [completedResults]);
+
+  const filteredCompletedResults = useMemo(() => {
+    if (selectedResultsMatchday === 'all') return completedResults;
+    return completedResults.filter((r) => r.matchday === selectedResultsMatchday);
+  }, [completedResults, selectedResultsMatchday]);
 
   const upcomingFixtures = useMemo(() => {
     return fixtures
@@ -443,7 +455,11 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
               if (activeTab === 'bracket') {
                 handleExport(bracketExportRef, 'ethiopian-efootball-bracket');
               } else if (activeTab === 'results') {
-                handleExport(resultsExportRef, 'ethiopian-efootball-match-results');
+                const fileLabel =
+                  selectedResultsMatchday === 'all'
+                    ? 'ethiopian-efootball-match-results'
+                    : `ethiopian-efootball-matchday-${selectedResultsMatchday}-results`;
+                handleExport(resultsExportRef, fileLabel);
               } else if (activeTab === 'upcoming') {
                 handleExport(upcomingExportRef, 'ethiopian-efootball-upcoming-matches');
               } else if (activeTab === 'fixtures') {
@@ -663,7 +679,44 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
       {/* 1. MATCH RESULTS ONLY BULLETIN EXPORT TARGET                                */}
       {/* ========================================================================= */}
       {activeTab === 'results' && (
-        <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
+        <div>
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#05093e] p-3 rounded-xl border border-[#3ce7ff]/20 mb-4">
+            <div className="flex items-center gap-2 text-xs text-[#b9c4f0]">
+              <span className="font-bold text-white">Filter Matchday:</span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedResultsMatchday('all')}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${
+                    selectedResultsMatchday === 'all'
+                      ? 'bg-[#eaff28] text-[#050842]'
+                      : 'bg-[#071360] text-white hover:text-[#eaff28]'
+                  }`}
+                >
+                  All Completed
+                </button>
+                {completedMatchdays.map((md) => (
+                  <button
+                    key={`res-md-btn-${md}`}
+                    type="button"
+                    onClick={() => setSelectedResultsMatchday(md)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ${
+                      selectedResultsMatchday === md
+                        ? 'bg-[#3ce7ff] text-[#050842]'
+                        : 'bg-[#071360] text-white hover:text-[#3ce7ff]'
+                    }`}
+                  >
+                    MD {md}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span className="text-[11px] text-[#3ce7ff] font-mono">
+              {filteredCompletedResults.length} results shown in poster
+            </span>
+          </div>
+
+          <div className="overflow-x-auto pb-4 rounded-2xl border border-[#3ce7ff]/30 bg-[#020520] p-4">
           <div
             ref={resultsExportRef}
             className="w-[1240px] min-w-[1240px] mx-auto rounded-3xl border-2 border-[#3ce7ff]/40 bg-gradient-to-b from-[#050d4a] via-[#03072c] to-[#01041b] p-6 lg:p-8 shadow-2xl relative select-none"
@@ -689,20 +742,26 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                     className="font-efootball-stencil font-sports text-2xl sm:text-3xl font-black text-white tracking-wide m-0 my-1"
                     style={{ lineHeight: '1.25' }}
                   >
-                    OFFICIAL MATCH RESULTS
+                    {selectedResultsMatchday === 'all'
+                      ? 'OFFICIAL MATCH RESULTS'
+                      : `MATCHDAY ${selectedResultsMatchday} RESULTS`}
                   </h2>
                   <p
                     className="text-xs text-[#3ce7ff] font-mono m-0 mt-1"
                     style={{ lineHeight: '1.3' }}
                   >
-                    Verified Final Scores &middot; Completed Matchday Records
+                    {selectedResultsMatchday === 'all'
+                      ? 'Verified Final Scores · Completed Matchday Records'
+                      : `Verified Final Scores · Single Matchday ${selectedResultsMatchday} Bulletin`}
                   </p>
                 </div>
               </div>
 
               <div className="text-right">
                 <span className="inline-block rounded-full bg-[#050842] border border-[#3ce7ff]/40 px-3 py-1 text-[10px] font-black uppercase text-[#eaff28]">
-                  Verified Records
+                  {selectedResultsMatchday === 'all'
+                    ? 'Verified Records'
+                    : `Matchday ${selectedResultsMatchday} Official`}
                 </span>
                 <p className="text-[10px] text-[#8e9bd4] font-mono mt-1">
                   Generated {new Date().toLocaleDateString()}
@@ -714,20 +773,20 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
             <div className="grid grid-cols-3 gap-3 mb-6 bg-[#040938] p-3.5 rounded-2xl border border-[#3ce7ff]/20 text-center">
               <div>
                 <span className="block text-2xl font-sports font-black text-white">
-                  {completedResults.length}
+                  {filteredCompletedResults.length}
                 </span>
                 <span className="text-[10px] uppercase text-[#8e9bd4] font-mono">Matches Completed</span>
               </div>
               <div className="border-x border-[#3ce7ff]/20">
                 <span className="block text-2xl font-sports font-black text-[#eaff28]">
-                  {completedResults.reduce((acc, r) => acc + r.home_score + r.away_score, 0)}
+                  {filteredCompletedResults.reduce((acc, r) => acc + r.home_score + r.away_score, 0)}
                 </span>
                 <span className="text-[10px] uppercase text-[#8e9bd4] font-mono">Total Goals Scored</span>
               </div>
               <div>
                 <span className="block text-2xl font-sports font-black text-[#3ce7ff]">
-                  {completedResults.length > 0
-                    ? (completedResults.reduce((acc, r) => acc + r.home_score + r.away_score, 0) / completedResults.length).toFixed(1)
+                  {filteredCompletedResults.length > 0
+                    ? (filteredCompletedResults.reduce((acc, r) => acc + r.home_score + r.away_score, 0) / filteredCompletedResults.length).toFixed(1)
                     : '0.0'}
                 </span>
                 <span className="text-[10px] uppercase text-[#8e9bd4] font-mono">Avg Goals / Match</span>
@@ -736,7 +795,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
 
             {/* All Results Grid */}
             <div className="grid grid-cols-2 gap-4">
-              {completedResults.map((r) => {
+              {filteredCompletedResults.map((r) => {
                 const homeP = playerMap.get(r.home_user);
                 const awayP = playerMap.get(r.away_user);
                 const isHomeWinner = r.home_score > r.away_score || r.penaltyWinner === r.home_user;
@@ -808,7 +867,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
                   </div>
                 );
               })}
-              {completedResults.length === 0 && (
+              {filteredCompletedResults.length === 0 && (
                 <div className="col-span-2 text-center text-xs text-[#8e9bd4] italic py-8 border border-dashed border-[#3ce7ff]/20 rounded-xl">
                   No completed match results recorded yet.
                 </div>
@@ -823,6 +882,7 @@ export const AdminMediaExporter: React.FC<AdminMediaExporterProps> = ({
               </span>
               <span>Telegram Announcement Broadcast</span>
             </div>
+          </div>
           </div>
         </div>
       )}

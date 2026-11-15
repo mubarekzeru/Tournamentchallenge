@@ -4,11 +4,30 @@ import path from 'path';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import {
+  readLiveTournamentState,
+  computeServerFixtures,
+  ServerTournamentState,
+} from './server/firestoreBridge';
+import { generateMatchdayResultsPng } from './server/matchdayGraphicGenerator';
+import {
+  startTelegramBot,
+  checkAndDispatchCompletedMatchdays,
+  getTelegramStatusSnapshot,
+  updateTelegramBotConfig,
+} from './server/telegramBot';
 
 dotenv.config();
 
 const app = express();
-const ai = new GoogleGenAI();
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    },
+  },
+});
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -176,6 +195,11 @@ app.post('/api/tournament', (req, res) => {
     return res.status(500).json({ success: false, error: 'Could not write to storage' });
   }
 
+  // Asynchronously check if any Matchday just became 100% completed and post its single-Matchday PNG graphic
+  checkAndDispatchCompletedMatchdays(payload as ServerTournamentState).catch((err) => {
+    console.warn('Telegram matchday check after update skipped/failed:', err);
+  });
+
   res.json({ success: true, data: payload });
 });
 
@@ -191,7 +215,7 @@ app.post('/api/tournament/reset', (_req, res) => {
   }
 });
 
-// AI Intelligence & Tactics Scout grounded with live Google Search (gemini-3.5-flash)
+// AI Intelligence & Tactics Scout grounded with live Google Search
 app.post('/api/ai/scout', async (req, res) => {
   try {
     const { prompt, context } = req.body;
@@ -204,7 +228,7 @@ app.post('/api/ai/scout', async (req, res) => {
       : `You are an expert eFootball esports intelligence analyst and tactics scout. Using live Google Search data, provide an up-to-date briefing on:\n${prompt}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
+      model: 'gemini-4-hydrogen',
       contents: fullPrompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -234,6 +258,96 @@ app.post('/api/ai/scout', async (req, res) => {
   }
 });
 
+// Telegram Bot Status, Group Config & Single-Matchday Results Graphic Endpoints
+app.get('/api/telegram/status', async (_req, res) => {
+  try {
+    const snapshot = await getTelegramStatusSnapshot();
+    res.json({ success: true, data: snapshot });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to retrieve Telegram bot status',
+    });
+  }
+});
+
+app.post('/api/telegram/config', async (req, res) => {
+  try {
+    const { groupChatId, autoPostMatchdayGraphic } = req.body || {};
+    updateTelegramBotConfig({
+      groupChatId,
+      autoPostMatchdayGraphic,
+    });
+    const snapshot = await getTelegramStatusSnapshot();
+    res.json({ success: true, data: snapshot });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to update Telegram bot config',
+    });
+  }
+});
+
+app.post('/api/telegram/post-matchday', async (req, res) => {
+  try {
+    const matchdayNum = Number(req.body?.matchday);
+    if (!Number.isFinite(matchdayNum) || matchdayNum < 1) {
+      return res.status(400).json({ success: false, error: 'Valid matchday number required' });
+    }
+    const state = await readLiveTournamentState();
+    const dispatchRes = await checkAndDispatchCompletedMatchdays(state, {
+      forceMatchday: matchdayNum,
+    });
+    const snapshot = await getTelegramStatusSnapshot();
+    if (dispatchRes.errors.length > 0 && dispatchRes.postedMatchdays.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: dispatchRes.errors[0],
+        data: snapshot,
+      });
+    }
+    res.json({
+      success: true,
+      postedMatchdays: dispatchRes.postedMatchdays,
+      data: snapshot,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to post Matchday graphic to Telegram',
+    });
+  }
+});
+
+app.get('/api/telegram/matchday-graphic/:matchday', async (req, res) => {
+  try {
+    const matchdayNum = Number(req.params.matchday);
+    if (!Number.isFinite(matchdayNum) || matchdayNum < 1) {
+      return res.status(400).json({ success: false, error: 'Invalid matchday number' });
+    }
+    const state = await readLiveTournamentState();
+    const fixtures = computeServerFixtures(state);
+    const pngBuffer = await generateMatchdayResultsPng({
+      matchday: matchdayNum,
+      fixtures,
+      results: state.results || [],
+      players: state.players || [],
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="efootball-matchday-${matchdayNum}-results.png"`
+    );
+    res.send(pngBuffer);
+  } catch (err: any) {
+    console.error('Matchday PNG generation error:', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to generate matchday graphic',
+    });
+  }
+});
+
 async function startServer() {
   if (!isProd) {
     // Mount Vite middlewares in development
@@ -253,6 +367,9 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${PORT}`);
+    startTelegramBot().catch((err) => {
+      console.error('Failed to start Telegram Bot poller:', err);
+    });
   });
 }
 

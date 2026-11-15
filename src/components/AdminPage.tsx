@@ -59,6 +59,7 @@ import {
 } from '../utils/groupStage';
 import { AdminMediaExporter } from './AdminMediaExporter';
 import { TournamentStatsSection } from './TournamentStatsSection';
+import { TelegramBotPanel } from './TelegramBotPanel';
 import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 import { CountryMatchClockBanner } from './CountryMatchClockBanner';
 import {
@@ -4851,6 +4852,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               fixtures={fixtures}
               results={results}
               tournamentFormat={tournamentFormat}
+              onToast={onToast}
+            />
+
+            {/* Suite Section: Telegram Bot Screenshot Auto-Referee & Matchday Auto-Poster */}
+            <TelegramBotPanel
+              players={players}
+              fixtures={fixtures}
+              results={results}
               onToast={onToast}
             />
 
