@@ -1,7 +1,8 @@
 {
+  "botEnabled": false,
   "groupChatId": -1003707889805,
   "groupChatTitle": "eFootball™ Tournament",
-  "autoPostMatchdayGraphic": true,
+  "autoPostMatchdayGraphic": false,
   "autoRecordScreenshots": false,
   "postedMatchdays": [],
   "sentClockReminders": [

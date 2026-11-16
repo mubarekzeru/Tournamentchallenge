@@ -38,6 +38,7 @@ export interface TelegramBotEvent {
 }
 
 export interface TelegramBotState {
+  botEnabled: boolean;
   groupChatId: string | number | null;
   groupChatTitle: string;
   autoPostMatchdayGraphic: boolean;
@@ -57,9 +58,10 @@ export interface TelegramBotInfo {
 }
 
 const DEFAULT_BOT_STATE: TelegramBotState = {
+  botEnabled: false,
   groupChatId: process.env.TELEGRAM_GROUP_CHAT_ID || null,
   groupChatTitle: '',
-  autoPostMatchdayGraphic: true,
+  autoPostMatchdayGraphic: false,
   autoRecordScreenshots: false,
   postedMatchdays: [],
   sentClockReminders: [],
@@ -132,6 +134,10 @@ function pushEvent(ev: Omit<TelegramBotEvent, 'id' | 'timestamp'>) {
     ...botState.recentEvents,
   ].slice(0, 25);
   saveBotState();
+}
+
+export function isTelegramBotEnabled(): boolean {
+  return Boolean(botState.botEnabled);
 }
 
 export function getLinkedGroupInfo() {
@@ -319,6 +325,9 @@ export async function checkAndDispatchCompletedMatchdays(
   providedState?: ServerTournamentState,
   options?: { forceMatchday?: number; targetChatId?: string | number }
 ): Promise<{ postedMatchdays: number[]; errors: string[] }> {
+  if (!options?.forceMatchday && (!botState.botEnabled || !botState.autoPostMatchdayGraphic)) {
+    return { postedMatchdays: [], errors: [] };
+  }
   if (isCheckingMatchdays && !options?.forceMatchday) {
     return { postedMatchdays: [], errors: [] };
   }
@@ -460,6 +469,7 @@ export async function checkAndDispatchCompletedMatchdays(
 }
 
 async function handleTelegramMessage(msg: any) {
+  if (!botState.botEnabled) return;
   if (!msg || !msg.chat) return;
 
   const chat = msg.chat;
@@ -857,7 +867,7 @@ async function handleTelegramMessage(msg: any) {
 }
 
 async function pollLoop() {
-  while (pollingActive) {
+  while (pollingActive && botState.botEnabled) {
     try {
       const res = await telegramApi<any[]>(
         'getUpdates',
@@ -971,6 +981,9 @@ export async function checkAndDispatchClockAnnouncements(
   providedState?: ServerTournamentState,
   options?: { forceType?: 'reminder' | 'ended' }
 ): Promise<{ sent: string[]; error?: string }> {
+  if (!options?.forceType && !botState.botEnabled) {
+    return { sent: [] };
+  }
   if (isCheckingClock && !options?.forceType) {
     return { sent: [] };
   }
@@ -1109,6 +1122,9 @@ export async function checkAndDispatchPostponedMatches(
   providedState?: ServerTournamentState,
   options?: { forceAll?: boolean }
 ): Promise<{ announcedIds: string[]; error?: string }> {
+  if (!options?.forceAll && !botState.botEnabled) {
+    return { announcedIds: [] };
+  }
   if (isCheckingPostponed && !options?.forceAll) {
     return { announcedIds: [] };
   }
@@ -1185,7 +1201,20 @@ export async function checkAndDispatchPostponedMatches(
   }
 }
 
+export function stopTelegramBot() {
+  pollingActive = false;
+  if (clockMonitorTimer) {
+    clearInterval(clockMonitorTimer);
+    clockMonitorTimer = null;
+  }
+  console.log('Telegram Bot completely turned OFF (Manual Mode).');
+}
+
 export async function startTelegramBot() {
+  if (!botState.botEnabled) {
+    stopTelegramBot();
+    return;
+  }
   const token = getBotToken();
   if (!token) {
     console.log('Telegram Bot: TELEGRAM_BOT_TOKEN not set; polling inactive.');
@@ -1206,6 +1235,11 @@ export async function startTelegramBot() {
   // Ensure webhook is cleared so getUpdates receives all group messages/photos
   await telegramApi('deleteWebhook', { drop_pending_updates: false });
 
+  if (!botState.botEnabled) {
+    stopTelegramBot();
+    return;
+  }
+
   pollingActive = true;
   pollLoop().catch((err) => {
     console.error('Telegram poll loop stopped:', err);
@@ -1217,11 +1251,92 @@ export async function startTelegramBot() {
     checkAndDispatchCompletedMatchdays().catch(() => {});
     checkAndDispatchPostponedMatches().catch(() => {});
     clockMonitorTimer = setInterval(() => {
+      if (!botState.botEnabled) return;
       checkAndDispatchClockAnnouncements().catch(() => {});
       checkAndDispatchCompletedMatchdays().catch(() => {});
       checkAndDispatchPostponedMatches().catch(() => {});
     }, 30_000);
   }
+}
+
+export async function postSingleMatchResultToTelegram(params: {
+  matchday: number;
+  homeUser: string;
+  awayUser: string;
+  homeScore: number;
+  awayScore: number;
+  isPostponed?: boolean;
+  postponedReason?: string;
+  rescheduledMatchday?: number;
+  penaltyWinner?: string;
+  penaltyHomeScore?: number;
+  penaltyAwayScore?: number;
+  stage?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const chatId = botState.groupChatId;
+  if (!chatId) {
+    return {
+      ok: false,
+      error: 'No Telegram group linked yet. Enter your Telegram Group ID in Bot Settings.',
+    };
+  }
+  if (!getBotToken()) {
+    return { ok: false, error: 'TELEGRAM_BOT_TOKEN is not configured on the server.' };
+  }
+
+  const state = await readLiveTournamentState();
+  const players = state.players || [];
+  const pMap = new Map(players.map((p) => [p.user.toLowerCase(), p]));
+  const homeTeam = pMap.get(params.homeUser.toLowerCase())?.team || params.homeUser;
+  const awayTeam = pMap.get(params.awayUser.toLowerCase())?.team || params.awayUser;
+
+  if (params.isPostponed) {
+    const reasonText = params.postponedReason ? `\n📝 Reason: ${escapeHtml(params.postponedReason)}` : '';
+    const reschedText = params.rescheduledMatchday
+      ? `\n📅 Rescheduled: Matchday ${params.rescheduledMatchday}`
+      : '';
+    const text =
+      `⏸ <b>MATCH POSTPONED · Matchday ${params.matchday}</b>\n\n` +
+      `⚽ <b>${escapeHtml(homeTeam)}</b> (@${escapeHtml(params.homeUser)}) vs <b>${escapeHtml(awayTeam)}</b> (@${escapeHtml(params.awayUser)})` +
+      `${reasonText}${reschedText}`;
+    const ok = await sendTelegramMessage(chatId, text);
+    if (ok) {
+      pushEvent({
+        type: 'postponed_announcement',
+        matchday: params.matchday,
+        summary: `Manually posted postponed match (MD ${params.matchday}): ${homeTeam} vs ${awayTeam}`,
+      });
+    }
+    return ok ? { ok: true } : { ok: false, error: 'Failed sending Telegram message.' };
+  }
+
+  const allFixtures = computeServerFixtures(state);
+  const mdFixtures = allFixtures.filter((f) => f.matchday === params.matchday);
+  const mdDone = mdFixtures.filter((f) => Boolean(findResultForFixture(f, state.results || []))).length;
+
+  const penText = params.penaltyWinner
+    ? `\n🏆 Penalties: ${params.penaltyHomeScore ?? ''}-${params.penaltyAwayScore ?? ''} (Winner: @${escapeHtml(params.penaltyWinner)})`
+    : '';
+  const stageText = params.stage ? ` · ${escapeHtml(params.stage)}` : '';
+  const progressLine =
+    mdFixtures.length > 0
+      ? `\n📊 Matchday ${params.matchday} Progress: <b>${mdDone}/${mdFixtures.length}</b> completed`
+      : '';
+
+  const message =
+    `⚽ <b>OFFICIAL MATCH RESULT · Matchday ${params.matchday}${stageText}</b>\n\n` +
+    `<b>${escapeHtml(homeTeam)}</b> (@${escapeHtml(params.homeUser)})  <b>${params.homeScore} - ${params.awayScore}</b>  <b>${escapeHtml(awayTeam)}</b> (@${escapeHtml(params.awayUser)})` +
+    `${penText}${progressLine}`;
+
+  const ok = await sendTelegramMessage(chatId, message);
+  if (ok) {
+    pushEvent({
+      type: 'matchday_graphic_posted',
+      matchday: params.matchday,
+      summary: `Manually posted MD ${params.matchday} score: ${homeTeam} ${params.homeScore}-${params.awayScore} ${awayTeam}`,
+    });
+  }
+  return ok ? { ok: true } : { ok: false, error: 'Failed sending Telegram message.' };
 }
 
 export async function getTelegramStatusSnapshot() {
@@ -1250,6 +1365,7 @@ export async function getTelegramStatusSnapshot() {
   const resolvedClock = resolveClockEndDateMs(state);
 
   return {
+    botEnabled: Boolean(botState.botEnabled),
     configured: Boolean(getBotToken()),
     pollingActive,
     botInfo,
@@ -1266,10 +1382,23 @@ export async function getTelegramStatusSnapshot() {
 }
 
 export function updateTelegramBotConfig(updates: {
+  botEnabled?: boolean;
   groupChatId?: string | number | null;
   autoPostMatchdayGraphic?: boolean;
   autoRecordScreenshots?: boolean;
 }) {
+  if (typeof updates.botEnabled === 'boolean') {
+    botState.botEnabled = updates.botEnabled;
+    if (!updates.botEnabled) {
+      if (updates.autoRecordScreenshots === undefined) {
+        botState.autoRecordScreenshots = false;
+      }
+      if (updates.autoPostMatchdayGraphic === undefined) {
+        botState.autoPostMatchdayGraphic = false;
+      }
+      stopTelegramBot();
+    }
+  }
   if (updates.groupChatId !== undefined) {
     const val =
       updates.groupChatId === null || String(updates.groupChatId).trim() === ''
@@ -1284,5 +1413,10 @@ export function updateTelegramBotConfig(updates: {
     botState.autoRecordScreenshots = updates.autoRecordScreenshots;
   }
   saveBotState();
+  if (botState.botEnabled) {
+    startTelegramBot().catch((err) => {
+      console.error('Failed starting Telegram bot after config enable:', err);
+    });
+  }
   return botState;
 }

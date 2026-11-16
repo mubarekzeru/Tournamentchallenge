@@ -17,9 +17,11 @@ import {
 } from './server/matchdayGraphicGenerator';
 import {
   startTelegramBot,
+  isTelegramBotEnabled,
   checkAndDispatchCompletedMatchdays,
   checkAndDispatchClockAnnouncements,
   checkAndDispatchPostponedMatches,
+  postSingleMatchResultToTelegram,
   getTelegramStatusSnapshot,
   updateTelegramBotConfig,
 } from './server/telegramBot';
@@ -230,12 +232,14 @@ app.post('/api/tournament', (req, res) => {
     return res.status(500).json({ success: false, error: 'Could not write to storage' });
   }
 
-  // Asynchronously check if any Matchday just became 100% completed, clock notice due, or postponed match added
-  checkAndDispatchCompletedMatchdays(payload as ServerTournamentState).catch((err) => {
-    console.warn('Telegram matchday check after update skipped/failed:', err);
-  });
-  checkAndDispatchClockAnnouncements(payload as ServerTournamentState).catch(() => {});
-  checkAndDispatchPostponedMatches(payload as ServerTournamentState).catch(() => {});
+  // Only trigger automated Telegram checks if the Bot Master Switch is explicitly turned ON
+  if (isTelegramBotEnabled()) {
+    checkAndDispatchCompletedMatchdays(payload as ServerTournamentState).catch((err) => {
+      console.warn('Telegram matchday check after update skipped/failed:', err);
+    });
+    checkAndDispatchClockAnnouncements(payload as ServerTournamentState).catch(() => {});
+    checkAndDispatchPostponedMatches(payload as ServerTournamentState).catch(() => {});
+  }
 
   res.json({ success: true, data: payload });
 });
@@ -310,9 +314,10 @@ app.get('/api/telegram/status', async (_req, res) => {
 
 app.post('/api/telegram/config', async (req, res) => {
   try {
-    const { groupChatId, autoPostMatchdayGraphic, autoRecordScreenshots } =
+    const { botEnabled, groupChatId, autoPostMatchdayGraphic, autoRecordScreenshots } =
       req.body || {};
     updateTelegramBotConfig({
+      botEnabled,
       groupChatId,
       autoPostMatchdayGraphic,
       autoRecordScreenshots,
@@ -323,6 +328,65 @@ app.post('/api/telegram/config', async (req, res) => {
     res.status(500).json({
       success: false,
       error: err?.message || 'Failed to update Telegram bot config',
+    });
+  }
+});
+
+app.post('/api/telegram/post-match-result', async (req, res) => {
+  try {
+    const {
+      matchday,
+      homeUser,
+      awayUser,
+      homeScore,
+      awayScore,
+      isPostponed,
+      postponedReason,
+      rescheduledMatchday,
+      penaltyWinner,
+      penaltyHomeScore,
+      penaltyAwayScore,
+      stage,
+    } = req.body || {};
+    if (!homeUser || !awayUser || !Number.isFinite(Number(matchday))) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid matchday, homeUser, and awayUser are required.',
+      });
+    }
+    const postRes = await postSingleMatchResultToTelegram({
+      matchday: Number(matchday),
+      homeUser: String(homeUser),
+      awayUser: String(awayUser),
+      homeScore: Number(homeScore) || 0,
+      awayScore: Number(awayScore) || 0,
+      isPostponed: Boolean(isPostponed),
+      postponedReason: typeof postponedReason === 'string' ? postponedReason : undefined,
+      rescheduledMatchday: Number.isFinite(Number(rescheduledMatchday))
+        ? Number(rescheduledMatchday)
+        : undefined,
+      penaltyWinner: typeof penaltyWinner === 'string' ? penaltyWinner : undefined,
+      penaltyHomeScore: Number.isFinite(Number(penaltyHomeScore))
+        ? Number(penaltyHomeScore)
+        : undefined,
+      penaltyAwayScore: Number.isFinite(Number(penaltyAwayScore))
+        ? Number(penaltyAwayScore)
+        : undefined,
+      stage: typeof stage === 'string' ? stage : undefined,
+    });
+    const snapshot = await getTelegramStatusSnapshot();
+    if (!postRes.ok) {
+      return res.status(400).json({
+        success: false,
+        error: postRes.error || 'Could not post match result to Telegram.',
+        data: snapshot,
+      });
+    }
+    res.json({ success: true, data: snapshot });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to post match result to Telegram.',
     });
   }
 });

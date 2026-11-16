@@ -77,6 +77,8 @@ import {
 
 interface AdminPageProps {
   isAdmin: boolean;
+  isCloudSignedIn?: boolean;
+  onOpenAuthModal?: () => void;
   activePasscode?: string;
   players: Player[];
   fixtures: Fixture[];
@@ -112,6 +114,8 @@ interface AdminPageProps {
 
 export const AdminPage: React.FC<AdminPageProps> = ({
   isAdmin,
+  isCloudSignedIn = false,
+  onOpenAuthModal,
   activePasscode,
   players,
   fixtures,
@@ -415,6 +419,65 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   const [scoreFeedback, setScoreFeedback] = useState<{ text: string; isError: boolean } | null>(
     null
   );
+  const [lastSavedMatch, setLastSavedMatch] = useState<{
+    matchday: number;
+    homeUser: string;
+    awayUser: string;
+    homeTeam: string;
+    awayTeam: string;
+    homeScore: number;
+    awayScore: number;
+    isPostponed: boolean;
+    postponedReason?: string;
+    rescheduledMatchday?: number;
+    penaltyWinner?: string;
+    penaltyHomeScore?: number;
+    penaltyAwayScore?: number;
+    stage?: string;
+  } | null>(null);
+  const [postingTelegramKey, setPostingTelegramKey] = useState<string | null>(null);
+
+  const handleManualPostMatchToTelegram = async (
+    payload: {
+      matchday: number;
+      homeUser: string;
+      awayUser: string;
+      homeScore: number;
+      awayScore: number;
+      isPostponed?: boolean;
+      postponedReason?: string;
+      rescheduledMatchday?: number;
+      penaltyWinner?: string;
+      penaltyHomeScore?: number;
+      penaltyAwayScore?: number;
+      stage?: string;
+    },
+    key: string
+  ) => {
+    setPostingTelegramKey(key);
+    try {
+      const res = await fetch('/api/telegram/post-match-result', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (json.success) {
+        onToast?.(
+          payload.isPostponed
+            ? `Postponed match notice posted to Telegram group (MD ${payload.matchday})!`
+            : `Match result posted to Telegram group (MD ${payload.matchday})!`,
+          'success'
+        );
+      } else {
+        onToast?.(json.error || 'Could not post result to Telegram group.', 'error');
+      }
+    } catch {
+      onToast?.('Network error posting match result to Telegram.', 'error');
+    } finally {
+      setPostingTelegramKey(null);
+    }
+  };
 
   const [stageFilter, setStageFilter] = useState<'all' | 'group_A' | 'group_B' | 'knockout' | 'quarter' | 'semi' | 'final'>('all');
   const [showDiscussionReference, setShowDiscussionReference] = useState<boolean>(false);
@@ -938,6 +1001,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       resultToSave,
       existingResult ? existingResult.id : undefined
     );
+
+    setLastSavedMatch({
+      matchday: resultToSave.matchday,
+      homeUser: resultToSave.home_user,
+      awayUser: resultToSave.away_user,
+      homeTeam: playerMap.get(resultToSave.home_user)?.team || resultToSave.home_user,
+      awayTeam: playerMap.get(resultToSave.away_user)?.team || resultToSave.away_user,
+      homeScore: resultToSave.home_score,
+      awayScore: resultToSave.away_score,
+      isPostponed: Boolean(resultToSave.isPostponed),
+      postponedReason: resultToSave.postponedReason,
+      rescheduledMatchday: resultToSave.rescheduledMatchday,
+      penaltyWinner: resultToSave.penaltyWinner,
+      penaltyHomeScore: resultToSave.penaltyHomeScore,
+      penaltyAwayScore: resultToSave.penaltyAwayScore,
+      stage: resultToSave.stage,
+    });
 
     // Build simulated updated results to check for continuation
     const savedResultId = existingResult ? existingResult.id : `res-${Date.now()}`;
@@ -2881,18 +2961,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </div>
                 </div>
 
-                {(selectedFormat === 'knockout' || selectedFormat === 'group_knockout' || selectedFormat === 'knockout_cup') && (
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28]/50 bg-[#eaff28]/10 px-3 py-1 text-xs font-black text-[#eaff28] shadow-sm">
-                    <Trophy className="h-3.5 w-3.5" />
-                    <span>Knockout Format Active</span>
-                  </div>
-                )}
-                {selectedFormat === 'group_stage' && (
-                  <div className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28]/50 bg-[#eaff28]/10 px-3 py-1 text-xs font-black text-[#eaff28] shadow-sm">
-                    <Trophy className="h-3.5 w-3.5" />
-                    <span>Group &amp; Knockout Format Active</span>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  {isCloudSignedIn ? (
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/50 bg-emerald-950/50 px-3 py-1 text-[11px] font-bold text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      <span>Cloud Sync Active (Server + Firebase)</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.()}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-500/15 hover:bg-amber-400 hover:text-[#050842] px-3 py-1 text-[11px] font-bold text-amber-300 transition-colors cursor-pointer"
+                      title="Sign in with Google so manual scores sync to Firebase and GitHub Pages"
+                    >
+                      <AlertCircle className="h-3.5 w-3.5" />
+                      <span>Sign In with Google to Sync All Phones</span>
+                    </button>
+                  )}
+
+                  {(selectedFormat === 'knockout' || selectedFormat === 'group_knockout' || selectedFormat === 'knockout_cup') && (
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28]/50 bg-[#eaff28]/10 px-3 py-1 text-xs font-black text-[#eaff28] shadow-sm">
+                      <Trophy className="h-3.5 w-3.5" />
+                      <span>Knockout Format Active</span>
+                    </div>
+                  )}
+                  {selectedFormat === 'group_stage' && (
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28]/50 bg-[#eaff28]/10 px-3 py-1 text-xs font-black text-[#eaff28] shadow-sm">
+                      <Trophy className="h-3.5 w-3.5" />
+                      <span>Group &amp; Knockout Format Active</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Stage Filter Bar for Knockout format */}
@@ -3810,7 +3909,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </span>
                           </div>
 
-                          <div>
+                          <div className="flex flex-wrap items-center gap-2">
                             {currentResult.home_score > currentResult.away_score ? (
                               <span className="inline-flex items-center gap-1.5 rounded-lg border border-[#eaff28]/50 bg-[#eaff28]/15 px-3 py-1 text-xs font-black text-[#eaff28] shadow-[0_0_10px_rgba(234,255,40,0.2)]">
                                 <Trophy className="h-3.5 w-3.5 text-[#eaff28]" />
@@ -3826,6 +3925,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <span>🤝 Full-Time Draw · 1 PT Each</span>
                               </span>
                             )}
+
+                            <button
+                              type="button"
+                              disabled={postingTelegramKey === `cur-${currentResult.id}`}
+                              onClick={() =>
+                                handleManualPostMatchToTelegram(
+                                  {
+                                    matchday: currentResult.matchday,
+                                    homeUser: currentResult.home_user,
+                                    awayUser: currentResult.away_user,
+                                    homeScore: currentResult.home_score,
+                                    awayScore: currentResult.away_score,
+                                    penaltyWinner: currentResult.penaltyWinner,
+                                    penaltyHomeScore: currentResult.penaltyHomeScore,
+                                    penaltyAwayScore: currentResult.penaltyAwayScore,
+                                    stage: currentResult.stage,
+                                  },
+                                  `cur-${currentResult.id}`
+                                )
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-[#3ce7ff]/60 bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1 text-xs font-bold text-[#3ce7ff] transition-colors disabled:opacity-50 cursor-pointer"
+                              title="Manually post this match score to your Telegram group"
+                            >
+                              <Send className="h-3 w-3" />
+                              <span>
+                                {postingTelegramKey === `cur-${currentResult.id}`
+                                  ? 'Posting...'
+                                  : 'Post to Telegram'}
+                              </span>
+                            </button>
                           </div>
                         </div>
 
@@ -4498,6 +4627,70 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </div>
                 )}
 
+                {lastSavedMatch && (
+                  <div className="rounded-xl border border-[#3ce7ff]/40 bg-[#05093e] p-3 flex flex-wrap items-center justify-between gap-2.5 text-xs">
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#3ce7ff] block">
+                        Last Saved Result (Matchday {lastSavedMatch.matchday})
+                      </span>
+                      <span className="font-sports font-bold text-white">
+                        {lastSavedMatch.isPostponed
+                          ? `${lastSavedMatch.homeTeam} vs ${lastSavedMatch.awayTeam} — Postponed`
+                          : `${lastSavedMatch.homeTeam} ${lastSavedMatch.homeScore} - ${lastSavedMatch.awayScore} ${lastSavedMatch.awayTeam}`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={postingTelegramKey === 'last-saved'}
+                        onClick={() =>
+                          handleManualPostMatchToTelegram(
+                            {
+                              matchday: lastSavedMatch.matchday,
+                              homeUser: lastSavedMatch.homeUser,
+                              awayUser: lastSavedMatch.awayUser,
+                              homeScore: lastSavedMatch.homeScore,
+                              awayScore: lastSavedMatch.awayScore,
+                              isPostponed: lastSavedMatch.isPostponed,
+                              postponedReason: lastSavedMatch.postponedReason,
+                              rescheduledMatchday: lastSavedMatch.rescheduledMatchday,
+                              penaltyWinner: lastSavedMatch.penaltyWinner,
+                              penaltyHomeScore: lastSavedMatch.penaltyHomeScore,
+                              penaltyAwayScore: lastSavedMatch.penaltyAwayScore,
+                              stage: lastSavedMatch.stage,
+                            },
+                            'last-saved'
+                          )
+                        }
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#3ce7ff] hover:bg-[#6ef0ff] text-[#050842] px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+                      >
+                        <Send className="h-3 w-3 stroke-[2.5]" />
+                        <span>
+                          {postingTelegramKey === 'last-saved'
+                            ? 'Posting...'
+                            : 'Post Result to Telegram'}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleCopy(
+                            lastSavedMatch.isPostponed
+                              ? `MD ${lastSavedMatch.matchday}: ${lastSavedMatch.homeTeam} vs ${lastSavedMatch.awayTeam} (Postponed)`
+                              : `MD ${lastSavedMatch.matchday}: ${lastSavedMatch.homeTeam} ${lastSavedMatch.homeScore} - ${lastSavedMatch.awayScore} ${lastSavedMatch.awayTeam}`,
+                            'last-saved-copy',
+                            'Match Result'
+                          )
+                        }
+                        className="inline-flex items-center gap-1 rounded-lg border border-[#3ce7ff]/40 bg-[#071360] hover:border-[#eaff28] px-2.5 py-1.5 text-[11px] font-bold text-white transition-colors cursor-pointer"
+                      >
+                        <Copy className="h-3 w-3 text-[#3ce7ff]" />
+                        <span>Copy</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap items-center gap-3">
                   {entryMode === 'postpone' ? (
                     <button
@@ -4870,8 +5063,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 )}
                               </div>
 
-                              {/* Action Controls: Edit & Delete */}
+                              {/* Action Controls: Post to Telegram, Edit & Delete */}
                               <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  disabled={postingTelegramKey === `part-${r.id}`}
+                                  onClick={() =>
+                                    handleManualPostMatchToTelegram(
+                                      {
+                                        matchday: r.matchday,
+                                        homeUser: r.home_user,
+                                        awayUser: r.away_user,
+                                        homeScore: r.home_score,
+                                        awayScore: r.away_score,
+                                        penaltyWinner: r.penaltyWinner,
+                                        penaltyHomeScore: r.penaltyHomeScore,
+                                        penaltyAwayScore: r.penaltyAwayScore,
+                                        stage: r.stage,
+                                      },
+                                      `part-${r.id}`
+                                    )
+                                  }
+                                  className="flex items-center gap-1 rounded-lg border border-[#3ce7ff]/50 bg-[#071360] px-2 py-1 text-[10px] font-extrabold text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#050842] transition-colors disabled:opacity-50 cursor-pointer"
+                                  title="Manually post this match score to Telegram group"
+                                >
+                                  <Send className="h-3 w-3" />
+                                  <span className="hidden sm:inline">
+                                    {postingTelegramKey === `part-${r.id}` ? '...' : 'Post'}
+                                  </span>
+                                </button>
+
                                 <button
                                   type="button"
                                   onClick={() => {

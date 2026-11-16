@@ -14,6 +14,7 @@ import {
   Bot,
   Paperclip,
   X,
+  Power,
 } from 'lucide-react';
 import { Fixture, MatchResult, Player } from '../types/tournament';
 
@@ -59,6 +60,7 @@ interface MatchdayProgressItem {
 }
 
 interface TelegramStatusSnapshot {
+  botEnabled: boolean;
   configured: boolean;
   pollingActive: boolean;
   botInfo: {
@@ -94,7 +96,8 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
   const [postingMd, setPostingMd] = useState<number | null>(null);
   const [sendingNotice, setSendingNotice] = useState<'reminder' | 'ended' | null>(null);
   const [groupInput, setGroupInput] = useState('');
-  const [autoPost, setAutoPost] = useState(true);
+  const [botEnabled, setBotEnabled] = useState(false);
+  const [autoPost, setAutoPost] = useState(false);
   const [autoRecord, setAutoRecord] = useState(false);
 
   // AI Assistant state
@@ -124,6 +127,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         setStatus(data);
         if (syncInputs) {
           setGroupInput(data.groupChatId ? String(data.groupChatId) : '');
+          setBotEnabled(Boolean(data.botEnabled));
           setAutoPost(Boolean(data.autoPostMatchdayGraphic));
           setAutoRecord(Boolean(data.autoRecordScreenshots));
         }
@@ -147,9 +151,12 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
   }, [results.length, fetchStatus]);
 
   const handleSaveConfig = async (overrides?: {
+    botEnabled?: boolean;
     autoPost?: boolean;
     autoRecord?: boolean;
   }) => {
+    const botEnabledVal =
+      overrides?.botEnabled !== undefined ? overrides.botEnabled : botEnabled;
     const autoPostVal =
       overrides?.autoPost !== undefined ? overrides.autoPost : autoPost;
     const autoRecordVal =
@@ -160,6 +167,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          botEnabled: botEnabledVal,
           groupChatId: groupInput.trim() || null,
           autoPostMatchdayGraphic: autoPostVal,
           autoRecordScreenshots: autoRecordVal,
@@ -168,9 +176,19 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
       const json = await res.json();
       if (json.success && json.data) {
         setStatus(json.data);
+        setBotEnabled(Boolean(json.data.botEnabled));
         setAutoPost(Boolean(json.data.autoPostMatchdayGraphic));
         setAutoRecord(Boolean(json.data.autoRecordScreenshots));
-        if (onToast) onToast('Telegram Group Bot settings updated.', 'success');
+        if (onToast) {
+          onToast(
+            overrides?.botEnabled === false
+              ? 'Telegram Bot completely turned OFF (100% Manual Mode).'
+              : overrides?.botEnabled === true
+              ? 'Telegram Bot turned ON.'
+              : 'Telegram Group Bot settings updated.',
+            overrides?.botEnabled === false ? 'info' : 'success'
+          );
+        }
       } else if (onToast) {
         onToast(json.error || 'Failed to save Telegram settings.', 'error');
       }
@@ -367,23 +385,23 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
               <span className="rounded-full bg-[#eaff28] px-2.5 py-0.5 text-[9px] font-black uppercase text-[#050842]">
                 Telegram Group Auto-Referee
               </span>
-              {status?.pollingActive ? (
+              {status?.botEnabled && status?.pollingActive ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 px-2.5 py-0.5 text-[10px] font-bold text-emerald-300">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   LIVE · @{botUsername}
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 border border-amber-400/50 px-2.5 py-0.5 text-[10px] font-bold text-amber-300">
-                  <Clock className="h-3 w-3" />
-                  {loading ? 'Connecting...' : 'Waiting to Connect'}
+                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/20 border border-rose-400/50 px-2.5 py-0.5 text-[10px] font-bold text-rose-300">
+                  <Power className="h-3 w-3" />
+                  {loading ? 'Checking...' : 'COMPLETELY OFF · Manual Mode'}
                 </span>
               )}
             </div>
             <h3 className="font-sports text-xl sm:text-2xl text-white font-black tracking-wide mt-1">
-              Telegram Screenshot Matcher &amp; Matchday Auto-Poster
+              Telegram Manual Poster &amp; Bot Controls
             </h3>
             <p className="text-xs text-[#b9c4f0]">
-              Players post their eFootball Match History or Full Time screenshots in your Telegram group — the bot matches club logos, club names, or usernames to publish scores live, and automatically posts each completed Matchday&apos;s PNG graphic.
+              When turned OFF, all background polling, AI replies, screenshot reading, and auto-announcements stop completely — only your manual button clicks post to Telegram.
             </p>
           </div>
         </div>
@@ -395,6 +413,63 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         >
           <RefreshCw className="h-3.5 w-3.5" />
           <span>Refresh Bot Status</span>
+        </button>
+      </div>
+
+      {/* Master Power Switch */}
+      <div
+        className={`mb-5 rounded-xl border-2 p-4 flex flex-wrap items-center justify-between gap-4 transition-all ${
+          botEnabled
+            ? 'border-emerald-400/50 bg-emerald-950/25'
+            : 'border-rose-500/50 bg-rose-950/25'
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <div
+            className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl border ${
+              botEnabled
+                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-300'
+                : 'border-rose-400/60 bg-rose-500/20 text-rose-300'
+            }`}
+          >
+            <Power className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-sports text-sm sm:text-base font-black uppercase tracking-wider text-white">
+                Master Bot Power: {botEnabled ? 'ON (Automated)' : 'COMPLETELY OFF (100% Manual Mode)'}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-[#c7d3ff]">
+              {botEnabled
+                ? 'Bot polling and enabled automations are active. Turn OFF anytime to switch back to 100% manual score recording & posting.'
+                : 'Bot polling, AI assistant replies, automatic screenshot recording, auto Matchday posting, and clock timers are completely stopped. Record & post match results yourself with zero bot interference.'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={savingConfig}
+          onClick={() => {
+            const next = !botEnabled;
+            setBotEnabled(next);
+            if (!next) {
+              setAutoRecord(false);
+              setAutoPost(false);
+              handleSaveConfig({ botEnabled: false, autoRecord: false, autoPost: false });
+            } else {
+              handleSaveConfig({ botEnabled: true });
+            }
+          }}
+          className={`shrink-0 flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-wider border transition-all cursor-pointer disabled:opacity-50 ${
+            botEnabled
+              ? 'border-rose-400 bg-rose-500/20 text-rose-200 hover:bg-rose-500 hover:text-white'
+              : 'border-emerald-400 bg-emerald-500/20 text-emerald-200 hover:bg-emerald-500 hover:text-[#050842]'
+          }`}
+        >
+          <Power className="h-4 w-4" />
+          <span>{botEnabled ? 'Turn Bot OFF' : 'Turn Bot ON'}</span>
         </button>
       </div>
 
@@ -445,7 +520,11 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         </div>
 
         {/* Manual Safe Mode vs AI Auto-Record Toggle */}
-        <div className="lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
+        <div
+          className={`lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between ${
+            !botEnabled ? 'opacity-55' : ''
+          }`}
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[#3ce7ff] flex items-center gap-1.5">
@@ -453,26 +532,28 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
                 Auto-Record Screenshots
               </span>
               <p className="mt-1 text-[11px] text-[#b9c4f0]">
-                {autoRecord
+                {!botEnabled
+                  ? 'Stopped because Master Bot Power is OFF.'
+                  : autoRecord
                   ? 'Bot reads Telegram screenshots automatically, while preserving any scores you entered manually on the website.'
                   : 'Paused (Manual Mode): Bot ignores Telegram screenshots & stops group error messages so you can record matches manually.'}
               </p>
             </div>
             <button
               type="button"
-              disabled={savingConfig}
+              disabled={savingConfig || !botEnabled}
               onClick={() => {
                 const next = !autoRecord;
                 setAutoRecord(next);
                 handleSaveConfig({ autoRecord: next });
               }}
-              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer ${
-                autoRecord
+              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer disabled:cursor-not-allowed ${
+                botEnabled && autoRecord
                   ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
                   : 'border-amber-400/60 bg-amber-500/15 text-amber-300'
               }`}
             >
-              {autoRecord ? 'ON' : 'OFF'}
+              {botEnabled && autoRecord ? 'ON' : 'OFF'}
             </button>
           </div>
 
@@ -481,13 +562,17 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
               <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
               Manual website scores always protected
             </span>
-            <span className={`font-mono ${autoRecord ? 'text-emerald-300' : 'text-amber-300'}`}>
-              {autoRecord ? 'AI Active' : 'Manual'}
+            <span className={`font-mono ${botEnabled && autoRecord ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {botEnabled && autoRecord ? 'AI Active' : 'Manual'}
             </span>
           </div>
         </div>
 
-        <div className="lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
+        <div
+          className={`lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between ${
+            !botEnabled ? 'opacity-55' : ''
+          }`}
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[#eaff28] flex items-center gap-1.5">
@@ -495,24 +580,26 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
                 Single-Matchday Auto-Post
               </span>
               <p className="mt-1 text-[11px] text-[#b9c4f0]">
-                Automatically renders and posts that single Matchday&apos;s PNG results poster to the Telegram group once 100% of its fixtures end.
+                {!botEnabled
+                  ? 'Stopped because Master Bot Power is OFF. Use the manual Post button below when ready.'
+                  : 'Automatically renders and posts that single Matchday&apos;s PNG results poster to the Telegram group once 100% of its fixtures end.'}
               </p>
             </div>
             <button
               type="button"
-              disabled={savingConfig}
+              disabled={savingConfig || !botEnabled}
               onClick={() => {
                 const next = !autoPost;
                 setAutoPost(next);
                 handleSaveConfig({ autoPost: next });
               }}
-              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer ${
-                autoPost
+              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer disabled:cursor-not-allowed ${
+                botEnabled && autoPost
                   ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
                   : 'border-slate-500 bg-slate-800/60 text-slate-300'
               }`}
             >
-              {autoPost ? 'ON' : 'OFF'}
+              {botEnabled && autoPost ? 'ON' : 'OFF'}
             </button>
           </div>
 

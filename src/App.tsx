@@ -1323,6 +1323,8 @@ export default function App() {
             {/* Administrator Section */}
             <AdminPage
               isAdmin={isAdmin}
+              isCloudSignedIn={Boolean(currentUser?.uid)}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
               activePasscode={adminPasscode}
               players={calculatedPlayers}
               fixtures={tournamentFixtures}
