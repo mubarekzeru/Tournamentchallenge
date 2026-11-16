@@ -22,6 +22,7 @@ interface TelegramBotEvent {
     | 'screenshot_duplicate'
     | 'screenshot_unmatched'
     | 'matchday_graphic_posted'
+    | 'clock_announcement'
     | 'error';
   matchday?: number;
   summary: string;
@@ -48,6 +49,8 @@ interface TelegramStatusSnapshot {
   groupChatTitle: string;
   autoPostMatchdayGraphic: boolean;
   postedMatchdays: number[];
+  sentClockReminders?: string[];
+  activeDeadlineEndIso?: string | null;
   recentEvents: TelegramBotEvent[];
   matchdayProgress: MatchdayProgressItem[];
 }
@@ -67,6 +70,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
   const [loading, setLoading] = useState(true);
   const [savingConfig, setSavingConfig] = useState(false);
   const [postingMd, setPostingMd] = useState<number | null>(null);
+  const [sendingNotice, setSendingNotice] = useState<'reminder' | 'ended' | null>(null);
   const [groupInput, setGroupInput] = useState('');
   const [autoPost, setAutoPost] = useState(true);
 
@@ -159,7 +163,36 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
     }
   };
 
-  const botUsername = status?.botInfo?.username || 'eFootball_eTournament';
+  const handleSendClockNotice = async (type: 'reminder' | 'ended') => {
+    setSendingNotice(type);
+    try {
+      const res = await fetch('/api/telegram/send-clock-notice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (json.data) setStatus(json.data);
+        if (onToast) {
+          onToast(
+            type === 'reminder'
+              ? 'Amharic hours-remaining reminder sent to Telegram group!'
+              : 'Amharic matchday closing message sent to Telegram group!',
+            'success'
+          );
+        }
+      } else if (onToast) {
+        onToast(json.error || 'Failed sending Telegram notice.', 'error');
+      }
+    } catch {
+      if (onToast) onToast('Network error sending Telegram announcement.', 'error');
+    } finally {
+      setSendingNotice(null);
+    }
+  };
+
+  const botUsername = status?.botInfo?.username || 'MetaRefereeBot';
   const matchdayList = status?.matchdayProgress || [];
 
   return (
@@ -291,6 +324,39 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         </div>
       </div>
 
+      {/* Automatic Amharic Countdown & Closing Announcements */}
+      <div className="rounded-xl border border-[#eaff28]/30 bg-[#05093e] p-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="text-xs font-bold uppercase tracking-wider text-[#eaff28] flex items-center gap-1.5">
+              <Clock className="h-3.5 w-3.5" />
+              Automatic Amharic Matchday Countdown &amp; Closing Alerts
+            </span>
+            <p className="mt-1 text-[11px] text-[#b9c4f0]">
+              Bot automatically sends hours-remaining reminders before the due time (3h, 2h, 1h left) and posts the closing announcement when the clock finishes.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={sendingNotice !== null}
+              onClick={() => handleSendClockNotice('reminder')}
+              className="rounded-lg border border-[#3ce7ff]/50 bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-[11px] font-bold text-[#3ce7ff] transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              {sendingNotice === 'reminder' ? 'Sending...' : 'Send Hours-Left Alert'}
+            </button>
+            <button
+              type="button"
+              disabled={sendingNotice !== null}
+              onClick={() => handleSendClockNotice('ended')}
+              className="rounded-lg border border-[#eaff28]/60 bg-[#eaff28]/15 hover:bg-[#eaff28] hover:text-[#050842] px-3 py-1.5 text-[11px] font-bold text-[#eaff28] transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              {sendingNotice === 'ended' ? 'Sending...' : 'Send Closing Alert'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Matchday Completion & Telegram Dispatch Grid */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
@@ -403,7 +469,8 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
             {status.recentEvents.slice(0, 10).map((ev) => {
               const isSuccess =
                 ev.type === 'screenshot_recorded' ||
-                ev.type === 'matchday_graphic_posted';
+                ev.type === 'matchday_graphic_posted' ||
+                ev.type === 'clock_announcement';
               const isWarn =
                 ev.type === 'screenshot_duplicate' ||
                 ev.type === 'screenshot_unmatched';

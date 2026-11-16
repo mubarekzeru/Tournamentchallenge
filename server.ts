@@ -13,6 +13,7 @@ import { generateMatchdayResultsPng } from './server/matchdayGraphicGenerator';
 import {
   startTelegramBot,
   checkAndDispatchCompletedMatchdays,
+  checkAndDispatchClockAnnouncements,
   getTelegramStatusSnapshot,
   updateTelegramBotConfig,
 } from './server/telegramBot';
@@ -195,10 +196,11 @@ app.post('/api/tournament', (req, res) => {
     return res.status(500).json({ success: false, error: 'Could not write to storage' });
   }
 
-  // Asynchronously check if any Matchday just became 100% completed and post its single-Matchday PNG graphic
+  // Asynchronously check if any Matchday just became 100% completed or clock notice due
   checkAndDispatchCompletedMatchdays(payload as ServerTournamentState).catch((err) => {
     console.warn('Telegram matchday check after update skipped/failed:', err);
   });
+  checkAndDispatchClockAnnouncements(payload as ServerTournamentState).catch(() => {});
 
   res.json({ success: true, data: payload });
 });
@@ -315,6 +317,34 @@ app.post('/api/telegram/post-matchday', async (req, res) => {
     res.status(500).json({
       success: false,
       error: err?.message || 'Failed to post Matchday graphic to Telegram',
+    });
+  }
+});
+
+app.post('/api/telegram/send-clock-notice', async (req, res) => {
+  try {
+    const noticeType = req.body?.type === 'ended' ? 'ended' : 'reminder';
+    const state = await readLiveTournamentState();
+    const noticeRes = await checkAndDispatchClockAnnouncements(state, {
+      forceType: noticeType,
+    });
+    const snapshot = await getTelegramStatusSnapshot();
+    if (noticeRes.error) {
+      return res.status(400).json({
+        success: false,
+        error: noticeRes.error,
+        data: snapshot,
+      });
+    }
+    res.json({
+      success: true,
+      sent: noticeRes.sent,
+      data: snapshot,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to send Amharic clock announcement to Telegram',
     });
   }
 });

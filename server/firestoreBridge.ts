@@ -101,21 +101,29 @@ export function saveLocalTournamentFile(state: ServerTournamentState): boolean {
 }
 
 export async function readLiveTournamentState(): Promise<ServerTournamentState> {
+  const local = loadLocalTournamentFile();
+
   try {
     const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
     const snap = await getDoc(docRef);
     if (snap.exists()) {
-      const data = snap.data() as ServerTournamentState;
-      if (data && Array.isArray(data.players)) {
-        saveLocalTournamentFile(data);
-        return data;
+      const remote = snap.data() as ServerTournamentState;
+      if (remote && Array.isArray(remote.players)) {
+        const localTime = local?.updatedAt ? Date.parse(local.updatedAt) : 0;
+        const remoteTime = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
+
+        // Keep whichever state is newer (important when server bot updated local storage while Firestore rules require auth)
+        if (local && localTime > remoteTime) {
+          return local;
+        }
+        saveLocalTournamentFile(remote);
+        return remote;
       }
     }
   } catch (err) {
     console.warn('Firestore read fallback to local tournament.json:', err);
   }
 
-  const local = loadLocalTournamentFile();
   if (local) return local;
 
   return {

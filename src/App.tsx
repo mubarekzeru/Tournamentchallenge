@@ -13,7 +13,7 @@ import {
 } from './data/tournamentData';
 import { Player, MatchResult, Fixture, TournamentFormat, GroupStageConfig, MatchClockConfig } from './types/tournament';
 import { calculateStandings } from './utils/standings';
-import { getDefaultClockConfig } from './utils/countryClock';
+import { getDefaultClockConfig, normalizeClockConfig } from './utils/countryClock';
 import {
   partitionPlayersIntoGroups,
   generateGroupStageFixtures as genGroupStageFixtures,
@@ -203,11 +203,13 @@ export default function App() {
       const saved = localStorage.getItem(STORAGE_KEY_MATCH_CLOCK);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') return parsed;
+        if (parsed && typeof parsed === 'object') return normalizeClockConfig(parsed);
       }
     } catch {}
     return getDefaultClockConfig();
   });
+
+  const authWarningShownRef = useRef(false);
 
   // Sync to Firestore & server so all devices worldwide see the exact same data and profile pictures
   const syncToServer = useCallback(
@@ -220,7 +222,7 @@ export default function App() {
       clockConfigToSync?: MatchClockConfig,
       isRegistrationEndedToSync?: boolean
     ) => {
-      saveTournamentDataToFirestore({
+      return saveTournamentDataToFirestore({
         players: playersToSync,
         results: resultsToSync,
         adminPasscode: passcode || adminPasscode,
@@ -235,32 +237,43 @@ export default function App() {
   );
 
   const hasFirestoreDataRef = useRef(false);
+  const latestRemoteTimestampRef = useRef<number>(0);
 
-  // Real-time synchronization via Firebase Firestore across all devices and links
+  // Real-time synchronization via Firebase Firestore + Server API (including Telegram Bot match updates)
   useEffect(() => {
     let isMounted = true;
 
-    // 1. Subscribe to live Firestore updates across all devices
-    const unsubscribe = subscribeTournamentData((data) => {
-      if (!isMounted) return;
-      hasFirestoreDataRef.current = true;
+    const applyRemoteState = (data: any, source: 'firestore' | 'server') => {
+      if (!isMounted || !data) return;
+      const incomingTime = data.updatedAt ? Date.parse(data.updatedAt) : 0;
+      if (incomingTime > 0 && incomingTime < latestRemoteTimestampRef.current) {
+        return;
+      }
+      if (incomingTime > 0) {
+        latestRemoteTimestampRef.current = incomingTime;
+      }
+
+      if (source === 'firestore') {
+        hasFirestoreDataRef.current = true;
+      }
+
       if (data.players && Array.isArray(data.players)) {
         setBasePlayers(data.players);
         try {
           localStorage.setItem(STORAGE_KEY_PLAYERS, JSON.stringify(data.players));
-        } catch (e) {}
+        } catch {}
       }
       if (data.results && Array.isArray(data.results)) {
         setResults(data.results);
         try {
           localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(data.results));
-        } catch (e) {}
+        } catch {}
       }
       if (data.adminPasscode) {
         setAdminPasscode(data.adminPasscode);
         try {
           localStorage.setItem(STORAGE_KEY_PASSCODE, data.adminPasscode);
-        } catch (e) {}
+        } catch {}
       }
       if (data.tournamentFormat) {
         const sanitizedFormat: TournamentFormat =
@@ -270,67 +283,59 @@ export default function App() {
         setTournamentFormat(sanitizedFormat);
         try {
           localStorage.setItem(STORAGE_KEY_FORMAT, sanitizedFormat);
-        } catch (e) {}
+        } catch {}
       }
       if (data.groupStageConfig) {
         setGroupStageConfig(data.groupStageConfig);
         try {
           localStorage.setItem(STORAGE_KEY_GROUP_CONFIG, JSON.stringify(data.groupStageConfig));
-        } catch (e) {}
+        } catch {}
       }
       if (data.clockConfig) {
-        setMatchClockConfig(data.clockConfig);
-        setShowCountdown(data.clockConfig.enabled);
-        setCountdownTargetDate(data.clockConfig.startDate);
+        const normalizedClock = normalizeClockConfig(data.clockConfig);
+        setMatchClockConfig(normalizedClock);
+        setShowCountdown(normalizedClock.enabled);
+        setCountdownTargetDate(normalizedClock.startDate);
         try {
-          localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(data.clockConfig));
-          localStorage.setItem('efootball_show_countdown', String(data.clockConfig.enabled));
-          localStorage.setItem('efootball_countdown_target_date', data.clockConfig.startDate);
-        } catch (e) {}
+          localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(normalizedClock));
+          localStorage.setItem('efootball_show_countdown', String(normalizedClock.enabled));
+          localStorage.setItem('efootball_countdown_target_date', normalizedClock.startDate);
+        } catch {}
       }
       if (typeof data.isRegistrationEnded === 'boolean') {
         setIsRegistrationEnded(data.isRegistrationEnded);
         try {
           localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(data.isRegistrationEnded));
-        } catch (e) {}
+        } catch {}
       }
+    };
+
+    // 1. Subscribe to live Firestore updates across all devices
+    const unsubscribe = subscribeTournamentData((data) => {
+      applyRemoteState(data, 'firestore');
     });
 
-    // 2. Fetch local API backup only if Firestore has not delivered live data
-    fetch('/api/tournament')
-      .then((res) => res.json())
-      .then((json) => {
-        if (!isMounted || hasFirestoreDataRef.current) return;
-        if (json.success && json.data) {
-          if (json.data.players && Array.isArray(json.data.players)) {
-            setBasePlayers((prev) => (prev.length === 0 ? json.data.players : prev));
+    // 2. Check /api/tournament periodically so Telegram Bot results update browsers immediately
+    const fetchServerBackup = () => {
+      fetch('/api/tournament')
+        .then((res) => res.json())
+        .then((json) => {
+          if (!isMounted || !json.success || !json.data) return;
+          const serverTime = json.data.updatedAt ? Date.parse(json.data.updatedAt) : 0;
+          if (!hasFirestoreDataRef.current || serverTime > latestRemoteTimestampRef.current) {
+            applyRemoteState(json.data, 'server');
           }
-          if (json.data.results && Array.isArray(json.data.results)) {
-            setResults((prev) => (prev.length === 0 ? json.data.results : prev));
-          }
-          if (json.data.tournamentFormat) {
-            const sanitizedFormat: TournamentFormat =
-              json.data.tournamentFormat === 'league_single' || json.data.tournamentFormat === 'league_double'
-                ? json.data.tournamentFormat
-                : 'knockout';
-            setTournamentFormat(sanitizedFormat);
-          }
-          if (json.data.groupStageConfig) {
-            setGroupStageConfig(json.data.groupStageConfig);
-          }
-          if (json.data.clockConfig) {
-            setMatchClockConfig((prev) => prev || json.data.clockConfig);
-          }
-          if (typeof json.data.isRegistrationEnded === 'boolean') {
-            setIsRegistrationEnded(json.data.isRegistrationEnded);
-          }
-        }
-      })
-      .catch(() => {});
+        })
+        .catch(() => {});
+    };
+
+    fetchServerBackup();
+    const serverPoll = setInterval(fetchServerBackup, 15_000);
 
     return () => {
       isMounted = false;
       unsubscribe();
+      clearInterval(serverPoll);
     };
   }, []);
 
@@ -1025,8 +1030,18 @@ export default function App() {
       localStorage.setItem('efootball_show_countdown', String(newConfig.enabled));
       localStorage.setItem('efootball_countdown_target_date', newConfig.startDate);
     } catch {}
-    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, newConfig);
-    addToast('Country clock & match schedule updated successfully!');
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, newConfig).then(
+      (res) => {
+        if (!res.firestoreOk && !authWarningShownRef.current) {
+          authWarningShownRef.current = true;
+          addToast(
+            'Clock updated locally. Click Sign In with Google (top right) to publish changes to Firebase across all phones.',
+            'info'
+          );
+        }
+      }
+    );
+    addToast('Country clock & match schedule updated!');
   };
 
   return (

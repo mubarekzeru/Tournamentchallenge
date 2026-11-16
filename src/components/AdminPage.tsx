@@ -71,6 +71,8 @@ import {
   buildMatchdaySchedule,
   formatPhoneTime,
   formatPhoneTimerDigits,
+  getTodayLocalDateStr,
+  getTimeHHmm,
 } from '../utils/countryClock';
 
 interface AdminPageProps {
@@ -274,10 +276,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   };
 
   const handleSelectMatchdayForClock = (md: number) => {
-    const today = clockDraft.matchDate || new Date().toISOString().slice(0, 10);
-    const startT = clockDraft.startTime || '21:00';
+    const useEth = clockDraft.countryZone === 'Africa/Addis_Ababa';
+    const today = clockDraft.matchDate || getTodayLocalDateStr(new Date(), useEth);
+    const startT = clockDraft.startTime || getTimeHHmm(new Date(clockDraft.startDate || Date.now()), useEth) || '21:00';
     const endT = clockDraft.endTime || '23:00';
-    const { startDate, endDate } = buildMatchdaySchedule(today, startT, endT);
+    const { startDate, endDate } = buildMatchdaySchedule(today, startT, endT, useEth);
     handleUpdateClock(
       {
         matchday: md,
@@ -300,8 +303,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     targetDateStr?: string
   ) => {
     const md = clockDraft.matchday || 1;
-    const dateStr = targetDateStr || clockDraft.matchDate || new Date().toISOString().slice(0, 10);
-    const { startDate, endDate } = buildMatchdaySchedule(dateStr, startTime, endTime);
+    const useEth = clockDraft.countryZone === 'Africa/Addis_Ababa';
+    const dateStr = targetDateStr || clockDraft.matchDate || getTodayLocalDateStr(new Date(), useEth);
+    const { startDate, endDate } = buildMatchdaySchedule(dateStr, startTime, endTime, useEth);
     handleUpdateClock(
       {
         matchday: md,
@@ -311,6 +315,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         endTime,
         startDate,
         endDate,
+        countryZone: clockDraft.countryZone || 'local',
+        timeFormat: clockDraft.timeFormat || '24h',
         title: `MATCHDAY ${md} KICKOFF & DUE DATE CLOCK`,
         subtitle: `Matchday ${md} window runs ${startTime} — ${endTime}. Complete all scheduled games before closing deadline.`,
       },
@@ -319,6 +325,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   };
 
   const handleApplyStartPreset = (type: 'now' | '30m' | '2h' | 'tomorrow19' | '2d' | '3d') => {
+    const useEth = clockDraft.countryZone === 'Africa/Addis_Ababa';
     const base = new Date();
     if (type === 'now') {
       base.setSeconds(0, 0);
@@ -336,22 +343,39 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       base.setDate(base.getDate() + 3);
       base.setHours(19, 0, 0, 0);
     }
-    const iso = base.toISOString();
-    // Ensure end date is after start date
-    const currentEnd = new Date(clockDraft.endDate);
-    let newEndIso = clockDraft.endDate;
-    if (currentEnd <= base) {
-      const newEnd = new Date(base.getTime() + 2 * 3600 * 1000);
-      newEndIso = newEnd.toISOString();
-    }
-    handleUpdateClock({ startDate: iso, endDate: newEndIso }, 'Match Starting Kickoff schedule updated!');
+    const newMatchDate = getTodayLocalDateStr(base, useEth);
+    const newStartTime = getTimeHHmm(base, useEth);
+    const desiredEndTime = clockDraft.endTime || '23:00';
+    const { startDate, endDate } = buildMatchdaySchedule(
+      newMatchDate,
+      newStartTime,
+      desiredEndTime,
+      useEth
+    );
+    handleUpdateClock(
+      {
+        matchDate: newMatchDate,
+        startTime: newStartTime,
+        endTime: desiredEndTime,
+        startDate,
+        endDate,
+      },
+      `Matchday starts at ${newStartTime}, counting down until ${desiredEndTime}!`
+    );
   };
 
   const handleApplyEndPreset = (hoursFromStart: number) => {
+    const useEth = clockDraft.countryZone === 'Africa/Addis_Ababa';
     const start = new Date(clockDraft.startDate);
     const validStart = !isNaN(start.getTime()) ? start : new Date();
     const end = new Date(validStart.getTime() + hoursFromStart * 3600 * 1000);
-    handleUpdateClock({ endDate: end.toISOString() }, 'Ending Due Date schedule updated!');
+    handleUpdateClock(
+      {
+        endDate: end.toISOString(),
+        endTime: getTimeHHmm(end, useEth),
+      },
+      'Ending Due Date schedule updated!'
+    );
   };
 
   React.useEffect(() => {
@@ -2323,7 +2347,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                       </h3>
                     </div>
                     <p className="mt-0.5 text-xs text-[#b9c4f0]">
-                      Set official country clock (Addis Ababa UTC+3), match starting date, and ending due date countdown displayed on the main page.
+                      Configure matchday kickoff time, closing deadline (e.g. 23:00), and local phone clock countdown displayed on the main page.
                     </p>
                   </div>
                 </div>
@@ -2366,14 +2390,25 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
               </div>
 
-              {/* Live Country Clock Ticking Bar */}
+              {/* Live Phone Clock Ticking Bar */}
               {isClockAdjustmentsOpen && (() => {
                 const status = getMatchClockStatus(clockDraft, adminClockNow);
                 const currentMd = clockDraft.matchday || 1;
-                const todayIsoDate = new Date().toISOString().slice(0, 10);
-                const activeMatchDate = clockDraft.matchDate || todayIsoDate;
-                const activeStartT = clockDraft.startTime || '21:00';
-                const activeEndT = clockDraft.endTime || '23:00';
+                const useEth = clockDraft.countryZone === 'Africa/Addis_Ababa';
+                const todayIsoDate = getTodayLocalDateStr(adminClockNow, useEth);
+                const activeMatchDate =
+                  clockDraft.matchDate ||
+                  getTodayLocalDateStr(new Date(status.effectiveStartIso), useEth) ||
+                  todayIsoDate;
+                const activeStartT =
+                  clockDraft.startTime ||
+                  getTimeHHmm(new Date(status.effectiveStartIso), useEth) ||
+                  '21:00';
+                const activeEndT =
+                  clockDraft.endTime ||
+                  getTimeHHmm(new Date(status.effectiveEndIso), useEth) ||
+                  '23:00';
+                const displayTz = useEth ? 'Africa/Addis_Ababa' : undefined;
 
                 return (
                   <div className="mt-5 space-y-5">
@@ -2408,7 +2443,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             {status.localNow.timeStr}
                           </span>
                           <span className="block text-[9.5px] text-[#8e9bd4] truncate mt-0.5">
-                            Phone Style: <strong className="text-[#eaff28]">{clockDraft.timeFormat === '12h' ? '12-Hour (AM/PM)' : '24-Hour'}</strong>
+                            Phone Style:{' '}
+                            <strong className="text-[#eaff28]">
+                              {clockDraft.timeFormat === '12h'
+                                ? '12-Hour (AM/PM)'
+                                : clockDraft.timeFormat === 'auto'
+                                ? 'OS Native'
+                                : '24-Hour'}
+                            </strong>
                           </span>
                         </div>
                       </div>
@@ -2549,7 +2591,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         <div className="mt-3 rounded-xl bg-[#030733] border border-[#3ce7ff]/20 p-2.5 flex items-center justify-between text-xs font-mono">
                           <span className="text-[#8e9bd4]">Kickoff Format:</span>
                           <span className="text-white font-bold">
-                            {formatPhoneTime(new Date(clockDraft.startDate), clockDraft.timeFormat || '24h')}
+                            {status.startTimePhone}
                           </span>
                         </div>
                       </div>
@@ -2569,7 +2611,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         </div>
 
                         <p className="text-[11px] text-[#b9c4f0] mb-3">
-                          Matches must conclude before this deadline (e.g. 23:00). The timer counts down to this ending time.
+                          Matches must conclude before this deadline (e.g. 23:00). The timer counts down continuously to this exact ending time.
                         </p>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -2595,15 +2637,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                             </label>
                             <div className="h-[38px] rounded-xl border border-white/10 bg-[#030733] px-3 flex items-center text-xs font-mono font-bold text-[#eaff28]">
                               {(() => {
-                                const diffH = Math.max(
-                                  0.5,
-                                  Math.round(
-                                    ((new Date(clockDraft.endDate).getTime() - new Date(clockDraft.startDate).getTime()) /
-                                      (3600 * 1000)) *
-                                      10
-                                  ) / 10
-                                );
-                                return `${diffH} Hours Window`;
+                                const diffMs =
+                                  new Date(clockDraft.endDate).getTime() -
+                                  new Date(clockDraft.startDate).getTime();
+                                const totalMins = Math.max(1, Math.round(diffMs / 60000));
+                                const hrs = Math.floor(totalMins / 60);
+                                const mins = totalMins % 60;
+                                return mins > 0 ? `${hrs}h ${mins}m Window` : `${hrs} Hours Window`;
                               })()}
                             </div>
                           </div>
@@ -2613,23 +2653,54 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         <div className="mt-3 rounded-xl bg-[#030733] border border-[#eaff28]/20 p-2.5 flex items-center justify-between text-xs font-mono">
                           <span className="text-[#8e9bd4]">Deadline Format:</span>
                           <span className="text-[#eaff28] font-bold">
-                            {formatPhoneTime(new Date(clockDraft.endDate), clockDraft.timeFormat || '24h')}
+                            {status.endTimePhone}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    {/* Step 3: Fast Matchday Presets (21:00 — 23:00) */}
+                    {/* Explicit Apply Schedule Action Bar */}
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#eaff28]/50 bg-[#060f56] px-4 py-3 shadow-md">
+                      <div className="text-xs font-mono text-[#b9c4f0]">
+                        Selected Window:{' '}
+                        <strong className="text-white">{activeMatchDate}</strong> ·{' '}
+                        <strong className="text-[#3ce7ff]">{activeStartT}</strong> →{' '}
+                        <strong className="text-[#eaff28]">{activeEndT}</strong> (Phone Clock)
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleApplyMatchdayScheduleTimes(activeStartT, activeEndT, activeMatchDate)
+                        }
+                        className="rounded-xl bg-[#eaff28] hover:bg-[#d8ec1f] px-4 py-2 text-xs font-black uppercase tracking-wider text-[#050842] shadow-[0_0_15px_rgba(234,255,40,0.35)] cursor-pointer"
+                      >
+                        ✓ Apply &amp; Save Clock Schedule
+                      </button>
+                    </div>
+
+                    {/* Step 3: Fast Matchday Presets (21:00 — 23:00 & Live Until 23:00) */}
                     <div className="rounded-2xl border border-[#3ce7ff]/30 bg-[#040833] p-4">
                       <span className="block text-[10px] font-mono font-bold uppercase tracking-wider text-[#eaff28] mb-2.5">
                         ⚡ Quick Matchday Schedule Presets:
                       </span>
                       <div className="flex flex-wrap gap-2">
+                        {/* Start Now -> Until 23:00 Tonight */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nowT = getTimeHHmm(new Date(), useEth);
+                            handleApplyMatchdayScheduleTimes(nowT, '23:00', todayIsoDate);
+                          }}
+                          className="rounded-xl border border-[#eaff28] bg-[#eaff28] hover:bg-[#d8ec1f] px-3 py-1.5 text-xs font-mono font-black text-[#050842] transition-all shadow-[0_0_12px_rgba(234,255,40,0.3)] cursor-pointer"
+                        >
+                          ▶ Start Now &amp; Count Until 23:00 Tonight
+                        </button>
+
                         {/* 21:00 - 23:00 Today */}
                         <button
                           type="button"
                           onClick={() => handleApplyMatchdayScheduleTimes('21:00', '23:00', todayIsoDate)}
-                          className="rounded-xl border border-[#eaff28]/60 bg-[#071360] hover:bg-[#eaff28] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-bold text-[#eaff28] transition-all shadow-sm"
+                          className="rounded-xl border border-[#eaff28]/60 bg-[#071360] hover:bg-[#eaff28] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-bold text-[#eaff28] transition-all shadow-sm cursor-pointer"
                         >
                           🌟 21:00 — 23:00 (Today)
                         </button>
@@ -2640,10 +2711,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           onClick={() => {
                             const tom = new Date();
                             tom.setDate(tom.getDate() + 1);
-                            const tomStr = tom.toISOString().slice(0, 10);
+                            const tomStr = getTodayLocalDateStr(tom, useEth);
                             handleApplyMatchdayScheduleTimes('21:00', '23:00', tomStr);
                           }}
-                          className="rounded-xl border border-[#3ce7ff]/40 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-white transition-all shadow-sm"
+                          className="rounded-xl border border-[#3ce7ff]/40 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-white transition-all shadow-sm cursor-pointer"
                         >
                           📅 21:00 — 23:00 (Tomorrow)
                         </button>
@@ -2652,18 +2723,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                         <button
                           type="button"
                           onClick={() => handleApplyMatchdayScheduleTimes('20:00', '22:00', todayIsoDate)}
-                          className="rounded-xl border border-[#3ce7ff]/30 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-[#b9c4f0] transition-all shadow-sm"
+                          className="rounded-xl border border-[#3ce7ff]/30 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-[#b9c4f0] transition-all shadow-sm cursor-pointer"
                         >
                           20:00 — 22:00 (Today)
-                        </button>
-
-                        {/* 19:00 - 21:00 Today */}
-                        <button
-                          type="button"
-                          onClick={() => handleApplyMatchdayScheduleTimes('19:00', '21:00', todayIsoDate)}
-                          className="rounded-xl border border-[#3ce7ff]/30 bg-[#060a48] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-[#b9c4f0] transition-all shadow-sm"
-                        >
-                          19:00 — 21:00 (Today)
                         </button>
 
                         {/* Next 2 Hours */}
@@ -2671,13 +2733,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           type="button"
                           onClick={() => {
                             const nowD = new Date();
-                            const pad = (n: number) => n.toString().padStart(2, '0');
-                            const startStr = `${pad(nowD.getHours())}:${pad(nowD.getMinutes())}`;
+                            const startStr = getTimeHHmm(nowD, useEth);
                             const endD = new Date(nowD.getTime() + 2 * 3600 * 1000);
-                            const endStr = `${pad(endD.getHours())}:${pad(endD.getMinutes())}`;
+                            const endStr = getTimeHHmm(endD, useEth);
                             handleApplyMatchdayScheduleTimes(startStr, endStr, todayIsoDate);
                           }}
-                          className="rounded-xl border border-emerald-500/40 bg-[#060a48] hover:bg-emerald-500 hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-emerald-300 transition-all shadow-sm"
+                          className="rounded-xl border border-emerald-500/40 bg-[#060a48] hover:bg-emerald-500 hover:text-[#050842] px-3 py-1.5 text-xs font-mono font-semibold text-emerald-300 transition-all shadow-sm cursor-pointer"
                         >
                           ⏱️ Next 2 Hours (From Now)
                         </button>
@@ -2692,31 +2753,44 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                           <Smartphone className="inline h-3.5 w-3.5 mr-1" />
                           Local Phone Time Style
                         </label>
-                        <div className="grid grid-cols-2 gap-2">
+                        <div className="grid grid-cols-3 gap-2">
                           <button
                             type="button"
-                            onClick={() => handleUpdateClock({ timeFormat: '24h' }, '24-Hour phone style activated')}
-                            className={`rounded-xl border p-2.5 text-center text-xs font-mono transition-all ${
-                              clockDraft.timeFormat !== '12h'
+                            onClick={() => handleUpdateClock({ timeFormat: 'auto' }, 'Auto device phone style activated')}
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all cursor-pointer ${
+                              !clockDraft.timeFormat || clockDraft.timeFormat === 'auto'
                                 ? 'border-[#eaff28] bg-[#071360] text-[#eaff28] font-bold shadow-sm'
                                 : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
                             }`}
                           >
-                            <span className="block text-sm font-bold mb-0.5">21:00 — 23:00</span>
-                            <span className="text-[10px] text-[#8e9bd4]">24-Hour Phone Clock</span>
+                            <span className="block text-xs font-bold mb-0.5">Auto Phone</span>
+                            <span className="text-[9.5px] text-[#8e9bd4]">OS Native</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateClock({ timeFormat: '24h' }, '24-Hour phone style activated')}
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all cursor-pointer ${
+                              clockDraft.timeFormat === '24h'
+                                ? 'border-[#eaff28] bg-[#071360] text-[#eaff28] font-bold shadow-sm'
+                                : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
+                            }`}
+                          >
+                            <span className="block text-xs font-bold mb-0.5">21:00—23:00</span>
+                            <span className="text-[9.5px] text-[#8e9bd4]">24-Hour</span>
                           </button>
 
                           <button
                             type="button"
                             onClick={() => handleUpdateClock({ timeFormat: '12h' }, '12-Hour phone style activated')}
-                            className={`rounded-xl border p-2.5 text-center text-xs font-mono transition-all ${
+                            className={`rounded-xl border p-2 text-center text-xs font-mono transition-all cursor-pointer ${
                               clockDraft.timeFormat === '12h'
                                 ? 'border-[#3ce7ff] bg-[#071360] text-[#3ce7ff] font-bold shadow-sm'
                                 : 'border-[#3ce7ff]/20 bg-[#060a48] text-[#8e9bd4] hover:text-white'
                             }`}
                           >
-                            <span className="block text-sm font-bold mb-0.5">9:00 PM — 11:00 PM</span>
-                            <span className="text-[10px] text-[#8e9bd4]">12-Hour Phone Clock</span>
+                            <span className="block text-xs font-bold mb-0.5">9—11 PM</span>
+                            <span className="text-[9.5px] text-[#8e9bd4]">12-Hour</span>
                           </button>
                         </div>
                       </div>

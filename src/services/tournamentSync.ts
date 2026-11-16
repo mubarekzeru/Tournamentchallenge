@@ -1,5 +1,5 @@
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
-import { db, validateFirestoreConnection } from '../lib/firebase';
+import { auth, db, handleFirestoreError, OperationType, validateFirestoreConnection } from '../lib/firebase';
 import { Player, MatchResult, TournamentFormat, GroupStageConfig, MatchClockConfig } from '../types/tournament';
 
 const TOURNAMENT_DOC_PATH = 'live';
@@ -74,7 +74,13 @@ export function sanitizeForFirestore<T>(data: T): T {
   return data;
 }
 
-// Persist updates to Firestore so all devices see the changes instantly
+export interface SaveSyncResult {
+  firestoreOk: boolean;
+  serverOk: boolean;
+  reason?: 'auth_required' | 'permission_denied' | 'error';
+}
+
+// Persist updates to server API + Firestore (requires signed-in Google user per firestore.rules)
 export async function saveTournamentDataToFirestore(payload: {
   players: Player[];
   results: MatchResult[];
@@ -83,45 +89,69 @@ export async function saveTournamentDataToFirestore(payload: {
   groupStageConfig?: GroupStageConfig;
   clockConfig?: MatchClockConfig;
   isRegistrationEnded?: boolean;
-}): Promise<boolean> {
+}): Promise<SaveSyncResult> {
+  const rawPayload: Record<string, any> = {
+    players: payload.players,
+    results: payload.results,
+    updatedAt: new Date().toISOString(),
+  };
+  if (payload.adminPasscode !== undefined && payload.adminPasscode !== '') {
+    rawPayload.adminPasscode = payload.adminPasscode;
+  }
+  if (payload.tournamentFormat !== undefined) {
+    rawPayload.tournamentFormat = payload.tournamentFormat;
+  }
+  if (payload.groupStageConfig !== undefined) {
+    rawPayload.groupStageConfig = payload.groupStageConfig;
+  }
+  if (payload.clockConfig !== undefined) {
+    rawPayload.clockConfig = payload.clockConfig;
+  }
+  if (payload.isRegistrationEnded !== undefined) {
+    rawPayload.isRegistrationEnded = payload.isRegistrationEnded;
+  }
+
+  const cleanPayload = sanitizeForFirestore(rawPayload);
+
+  // 1. Persist to Node server API for Telegram bot & fallback sync
+  let serverOk = false;
   try {
-    const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
-    const rawPayload: Record<string, any> = {
-      players: payload.players,
-      results: payload.results,
-      updatedAt: new Date().toISOString(),
-    };
-    if (payload.adminPasscode !== undefined && payload.adminPasscode !== '') {
-      rawPayload.adminPasscode = payload.adminPasscode;
-    }
-    if (payload.tournamentFormat !== undefined) {
-      rawPayload.tournamentFormat = payload.tournamentFormat;
-    }
-    if (payload.groupStageConfig !== undefined) {
-      rawPayload.groupStageConfig = payload.groupStageConfig;
-    }
-    if (payload.clockConfig !== undefined) {
-      rawPayload.clockConfig = payload.clockConfig;
-    }
-    if (payload.isRegistrationEnded !== undefined) {
-      rawPayload.isRegistrationEnded = payload.isRegistrationEnded;
-    }
-
-    // Clean overwrite without merge and strip all undefined values so Firestore never errors
-    const cleanPayload = sanitizeForFirestore(rawPayload);
-    await setDoc(docRef, cleanPayload);
-
-    // Also notify local API for fallback
-    fetch('/api/tournament', {
+    const apiRes = await fetch('/api/tournament', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(cleanPayload),
-    }).catch(() => {});
+    });
+    serverOk = apiRes.ok;
+  } catch {
+    serverOk = false;
+  }
 
-    return true;
-  } catch (err) {
+  // 2. Persist to Firestore when signed in (firestore.rules: allow write: if request.auth != null)
+  if (!auth.currentUser) {
+    return {
+      firestoreOk: false,
+      serverOk,
+      reason: 'auth_required',
+    };
+  }
+
+  const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
+  try {
+    const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
+    await setDoc(docRef, cleanPayload);
+    return { firestoreOk: true, serverOk };
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (msg.toLowerCase().includes('permission')) {
+      try {
+        handleFirestoreError(err, OperationType.WRITE, docPath);
+      } catch {
+        // Caught after structured diagnostic log
+      }
+      return { firestoreOk: false, serverOk, reason: 'permission_denied' };
+    }
     console.error('Error saving to Firestore:', err);
-    return false;
+    return { firestoreOk: false, serverOk, reason: 'error' };
   }
 }
 

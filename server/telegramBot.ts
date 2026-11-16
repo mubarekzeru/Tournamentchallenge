@@ -25,6 +25,7 @@ export interface TelegramBotEvent {
     | 'screenshot_duplicate'
     | 'screenshot_unmatched'
     | 'matchday_graphic_posted'
+    | 'clock_announcement'
     | 'error';
   matchday?: number;
   summary: string;
@@ -36,6 +37,7 @@ export interface TelegramBotState {
   groupChatTitle: string;
   autoPostMatchdayGraphic: boolean;
   postedMatchdays: number[];
+  sentClockReminders: string[];
   lastUpdateId: number;
   processedMessageKeys: string[];
   recentEvents: TelegramBotEvent[];
@@ -52,6 +54,7 @@ const DEFAULT_BOT_STATE: TelegramBotState = {
   groupChatTitle: '',
   autoPostMatchdayGraphic: true,
   postedMatchdays: [],
+  sentClockReminders: [],
   lastUpdateId: 0,
   processedMessageKeys: [],
   recentEvents: [],
@@ -61,6 +64,8 @@ let botState: TelegramBotState = loadBotState();
 let botInfo: TelegramBotInfo | null = null;
 let pollingActive = false;
 let isCheckingMatchdays = false;
+let isCheckingClock = false;
+let clockMonitorTimer: ReturnType<typeof setInterval> | null = null;
 
 function getBotToken(): string {
   return (process.env.TELEGRAM_BOT_TOKEN || '').trim();
@@ -76,6 +81,9 @@ function loadBotState(): TelegramBotState {
         ...parsed,
         postedMatchdays: Array.isArray(parsed.postedMatchdays)
           ? parsed.postedMatchdays
+          : [],
+        sentClockReminders: Array.isArray(parsed.sentClockReminders)
+          ? parsed.sentClockReminders
           : [],
         processedMessageKeys: Array.isArray(parsed.processedMessageKeys)
           ? parsed.processedMessageKeys
@@ -741,6 +749,207 @@ async function pollLoop() {
   }
 }
 
+function resolveClockEndDateMs(state: ServerTournamentState): {
+  enabled: boolean;
+  matchday: number;
+  startMs: number;
+  endMs: number;
+} | null {
+  const cc = state.clockConfig;
+  if (!cc || cc.enabled === false) return null;
+
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  let startDate = new Date(cc.startDate);
+  let endDate = new Date(cc.endDate);
+
+  if (isNaN(startDate.getTime())) {
+    if (cc.matchDate) {
+      const [sh, sm] = (cc.startTime || '21:00').split(':').map((v) => parseInt(v, 10) || 0);
+      startDate = new Date(`${cc.matchDate}T${pad(sh)}:${pad(sm)}:00+03:00`);
+    } else {
+      startDate = new Date();
+    }
+  }
+
+  // If endDate is missing or older than startDate (e.g. stale Nov 3), default to endTime || 23:00 on startDate day
+  if (isNaN(endDate.getTime()) || endDate <= startDate) {
+    const startEthDay = startDate.toLocaleDateString('en-CA', {
+      timeZone: 'Africa/Addis_Ababa',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    const [eh, em] = (cc.endTime || '23:00').split(':').map((v) => parseInt(v, 10) || 0);
+    endDate = new Date(`${startEthDay}T${pad(eh)}:${pad(em)}:00+03:00`);
+    if (endDate <= startDate) {
+      endDate = new Date(endDate.getTime() + 24 * 3600_000);
+    }
+  }
+
+  return {
+    enabled: true,
+    matchday: cc.matchday || 1,
+    startMs: startDate.getTime(),
+    endMs: endDate.getTime(),
+  };
+}
+
+export function buildAmharicHoursRemainingMessage(remainingMs: number): string {
+  const totalMinutes = Math.max(1, Math.round(remainingMs / 60_000));
+  let timeMention: string;
+  if (totalMinutes >= 60) {
+    const hoursRounded = Math.max(1, Math.round(remainingMs / 3600_000));
+    timeMention = `${hoursRounded} ሰአት`;
+  } else {
+    timeMention = `${totalMinutes} ደቂቃ`;
+  }
+  return (
+    `ውድ የ efootball ተወዳዳሪዎች ጨዋታው ሊጠናቀቅ ${timeMention} ነው የቀረው።\n` +
+    `ያልተጫወታችሁ ካላችሁ ጨዋታችሁን አጠናቁ`
+  );
+}
+
+export const AMHARIC_MATCHDAY_ENDED_MESSAGE =
+  'የዛሬው የቶርናመንት ጨዋታ እዚህ ጋር አብቅቷል። ለቀጣዩ መርሃ ግብር ተዘጋጁ';
+
+export async function checkAndDispatchClockAnnouncements(
+  providedState?: ServerTournamentState,
+  options?: { forceType?: 'reminder' | 'ended' }
+): Promise<{ sent: string[]; error?: string }> {
+  if (isCheckingClock && !options?.forceType) {
+    return { sent: [] };
+  }
+  isCheckingClock = true;
+  const sent: string[] = [];
+
+  try {
+    const state = providedState || (await readLiveTournamentState());
+    const chatId = botState.groupChatId;
+    if (!chatId) {
+      return {
+        sent: [],
+        error: 'No Telegram group linked yet.',
+      };
+    }
+
+    const resolved = resolveClockEndDateMs(state);
+    if (!resolved) {
+      if (options?.forceType === 'ended') {
+        const ok = await sendTelegramMessage(chatId, AMHARIC_MATCHDAY_ENDED_MESSAGE);
+        if (ok) {
+          sent.push('ended_manual');
+          pushEvent({
+            type: 'clock_announcement',
+            summary: 'Sent Amharic matchday closing notice to Telegram group',
+          });
+        }
+        return { sent, error: ok ? undefined : 'Failed sending message to Telegram.' };
+      }
+      return { sent: [] };
+    }
+
+    const nowMs = Date.now();
+    const { matchday, startMs, endMs } = resolved;
+    const scheduleKey = `${matchday}_${new Date(endMs).toISOString()}`;
+    const remainingMs = endMs - nowMs;
+
+    if (options?.forceType === 'reminder') {
+      const effectiveRemMs = remainingMs > 0 ? remainingMs : 3600_000;
+      const msg = buildAmharicHoursRemainingMessage(effectiveRemMs);
+      const ok = await sendTelegramMessage(chatId, msg);
+      if (ok) {
+        sent.push(`${scheduleKey}:manual_rem`);
+        pushEvent({
+          type: 'clock_announcement',
+          matchday,
+          summary: `Sent Amharic countdown reminder to group (MD ${matchday})`,
+          detail: msg.replace('\n', ' '),
+        });
+      }
+      return { sent, error: ok ? undefined : 'Failed sending reminder to Telegram.' };
+    }
+
+    if (options?.forceType === 'ended') {
+      const ok = await sendTelegramMessage(chatId, AMHARIC_MATCHDAY_ENDED_MESSAGE);
+      if (ok) {
+        const key = `${scheduleKey}:ended`;
+        if (!botState.sentClockReminders.includes(key)) {
+          botState.sentClockReminders.push(key);
+        }
+        sent.push(key);
+        pushEvent({
+          type: 'clock_announcement',
+          matchday,
+          summary: `Sent Amharic Matchday ${matchday} closing announcement`,
+          detail: AMHARIC_MATCHDAY_ENDED_MESSAGE,
+        });
+      }
+      saveBotState();
+      return { sent, error: ok ? undefined : 'Failed sending closing notice to Telegram.' };
+    }
+
+    // 1. Check if Matchday just ended (within last 3 hours so ancient dates don't spam on startup)
+    if (nowMs >= endMs && nowMs - endMs <= 3 * 3600_000) {
+      const endedKey = `${scheduleKey}:ended`;
+      if (!botState.sentClockReminders.includes(endedKey)) {
+        const ok = await sendTelegramMessage(chatId, AMHARIC_MATCHDAY_ENDED_MESSAGE);
+        if (ok) {
+          botState.sentClockReminders.push(endedKey);
+          sent.push(endedKey);
+          pushEvent({
+            type: 'clock_announcement',
+            matchday,
+            summary: `Matchday ${matchday} ended — sent Amharic closing notice`,
+            detail: AMHARIC_MATCHDAY_ENDED_MESSAGE,
+          });
+        }
+      }
+    } else if (remainingMs > 60_000) {
+      // 2. Check whole-hour reminder milestones (3h, 2h, 1h left before deadline)
+      const totalWindowMs = Math.max(0, endMs - startMs);
+      const milestones = [3, 2, 1];
+      for (const hr of milestones) {
+        const upperMs = hr * 3600_000;
+        const lowerMs = (hr - 1) * 3600_000 + 5 * 60_000; // Only send for the current active hour band
+
+        // Skip top boundary if total matchday window is <= milestone + 10m (e.g. don't fire 2h reminder at minute 0 of a 2h window)
+        if (totalWindowMs > 0 && totalWindowMs <= upperMs + 10 * 60_000 && hr >= 2) {
+          continue;
+        }
+
+        if (remainingMs <= upperMs && remainingMs > lowerMs) {
+          const remKey = `${scheduleKey}:rem_${hr}h`;
+          if (!botState.sentClockReminders.includes(remKey)) {
+            const msg = buildAmharicHoursRemainingMessage(upperMs);
+            const ok = await sendTelegramMessage(chatId, msg);
+            if (ok) {
+              botState.sentClockReminders.push(remKey);
+              sent.push(remKey);
+              pushEvent({
+                type: 'clock_announcement',
+                matchday,
+                summary: `Sent ${hr}h remaining Amharic reminder to Telegram group`,
+                detail: msg.replace('\n', ' '),
+              });
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    if (botState.sentClockReminders.length > 60) {
+      botState.sentClockReminders = botState.sentClockReminders.slice(-60);
+    }
+    saveBotState();
+    return { sent };
+  } catch (err: any) {
+    return { sent, error: err?.message || 'Clock monitor error' };
+  } finally {
+    isCheckingClock = false;
+  }
+}
+
 export async function startTelegramBot() {
   const token = getBotToken();
   if (!token) {
@@ -767,6 +976,13 @@ export async function startTelegramBot() {
     console.error('Telegram poll loop stopped:', err);
     pollingActive = false;
   });
+
+  if (!clockMonitorTimer) {
+    checkAndDispatchClockAnnouncements().catch(() => {});
+    clockMonitorTimer = setInterval(() => {
+      checkAndDispatchClockAnnouncements().catch(() => {});
+    }, 30_000);
+  }
 }
 
 export async function getTelegramStatusSnapshot() {
@@ -792,6 +1008,8 @@ export async function getTelegramStatusSnapshot() {
     };
   });
 
+  const resolvedClock = resolveClockEndDateMs(state);
+
   return {
     configured: Boolean(getBotToken()),
     pollingActive,
@@ -800,6 +1018,8 @@ export async function getTelegramStatusSnapshot() {
     groupChatTitle: botState.groupChatTitle,
     autoPostMatchdayGraphic: botState.autoPostMatchdayGraphic,
     postedMatchdays: botState.postedMatchdays,
+    sentClockReminders: botState.sentClockReminders,
+    activeDeadlineEndIso: resolvedClock ? new Date(resolvedClock.endMs).toISOString() : null,
     recentEvents: botState.recentEvents,
     matchdayProgress,
   };
