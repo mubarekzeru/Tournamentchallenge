@@ -1,0 +1,60 @@
+{
+  "groupChatId": -1003707889805,
+  "groupChatTitle": "eFootball™ Tournament",
+  "autoPostMatchdayGraphic": true,
+  "postedMatchdays": [],
+  "sentClockReminders": [
+    "1_2026-11-16T20:00:00.000Z:rem_3h"
+  ],
+  "announcedPostponedIds": [],
+  "lastUpdateId": 6202234,
+  "processedMessageKeys": [
+    "-1003707889805:196",
+    "-1003707889805:197",
+    "-1003707889805:198",
+    "-1003707889805:199",
+    "-1003707889805:200",
+    "-1003707889805:201",
+    "-1003707889805:203",
+    "752686239:83",
+    "752686239:85"
+  ],
+  "recentEvents": [
+    {
+      "id": "tg-ev-1794850249784-3qlh",
+      "timestamp": "2026-11-16T17:30:49.784Z",
+      "type": "ai_assistant",
+      "summary": "Telegram AI reply to ᗰ𝘜ßꪗ ✗ꫀ尺𝕌 (Admin)",
+      "detail": "Delete All"
+    },
+    {
+      "id": "tg-ev-1794850154769-w25a",
+      "timestamp": "2026-11-16T17:29:14.769Z",
+      "type": "ai_assistant",
+      "summary": "Telegram AI reply to ᗰ𝘜ßꪗ ✗ꫀ尺𝕌 (Admin)",
+      "detail": "Delete All"
+    },
+    {
+      "id": "tg-ev-1794850012010-apze",
+      "timestamp": "2026-11-16T17:26:52.010Z",
+      "type": "error",
+      "summary": "Screenshot analysis failed",
+      "detail": "{\"error\":{\"code\":503,\"message\":\"This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.\",\"status\":\"UNAVAILABLE\"}}"
+    },
+    {
+      "id": "tg-ev-1794849875036-d2cl",
+      "timestamp": "2026-11-16T17:24:35.036Z",
+      "type": "screenshot_unmatched",
+      "summary": "Unmatched screenshot: ... 3-0 YAZEW",
+      "detail": "Style B Full Time screen (3-0). Away side shows team name 'YAZEW' and Toulouse FC logo, matching registered player PARADISE_J. Home side shows '...' and Paris Saint-Germain logo, which does not match any registered player's club logo or name."
+    },
+    {
+      "id": "tg-ev-1794848417806-jv6y",
+      "timestamp": "2026-11-16T17:00:17.806Z",
+      "type": "clock_announcement",
+      "matchday": 1,
+      "summary": "Sent 3h remaining Amharic reminder to Telegram group",
+      "detail": "ውድ የ efootball ተወዳዳሪዎች ጨዋታው ሊጠናቀቅ 3 ሰአት ነው የቀረው። ያልተጫወታችሁ ካላችሁ ጨዋታችሁን አጠናቁ"
+    }
+  ]
+}

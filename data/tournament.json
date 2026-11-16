@@ -234,9 +234,32 @@
       "gf": 0
     }
   ],
-  "results": [],
+  "results": [
+    {
+      "id": "res-1794850275239-m2",
+      "matchday": 1,
+      "home_user": "eagle_11",
+      "away_user": "PARADISE_J",
+      "home_score": 3,
+      "away_score": 0,
+      "venue": "Verified Matchday 1 Screenshot",
+      "submitted_at": "2026-11-16T17:31:15.238Z",
+      "stage": "League Stage"
+    },
+    {
+      "id": "res-1794850275238-m1",
+      "matchday": 1,
+      "home_user": "BULU_GERANA",
+      "away_user": "ahmi_jr_11",
+      "home_score": 1,
+      "away_score": 2,
+      "venue": "Verified Matchday 1 Screenshot",
+      "submitted_at": "2026-11-16T17:31:15.238Z",
+      "stage": "League Stage"
+    }
+  ],
   "adminPasscode": "-]MK3kMJPdLn]!1mX=81lb",
-  "updatedAt": "2026-11-16T11:54:32.702Z",
+  "updatedAt": "2026-11-16T17:31:15.324Z",
   "tournamentFormat": "league_single",
   "groupStageConfig": {
     "wildcardMethod": "best_thirds",

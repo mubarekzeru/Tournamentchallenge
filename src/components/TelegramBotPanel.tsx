@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Send,
   RefreshCw,
@@ -11,6 +11,9 @@ import {
   Sparkles,
   Check,
   ShieldCheck,
+  Bot,
+  Paperclip,
+  X,
 } from 'lucide-react';
 import { Fixture, MatchResult, Player } from '../types/tournament';
 
@@ -23,10 +26,28 @@ interface TelegramBotEvent {
     | 'screenshot_unmatched'
     | 'matchday_graphic_posted'
     | 'clock_announcement'
+    | 'postponed_announcement'
+    | 'ai_assistant'
     | 'error';
   matchday?: number;
   summary: string;
   detail?: string;
+}
+
+interface AssistantActionRecord {
+  tool: string;
+  ok: boolean;
+  summary: string;
+  graphicPreviewBase64?: string;
+  graphicType?: string;
+}
+
+interface AssistantChatItem {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  attachedPreview?: string;
+  actions?: AssistantActionRecord[];
 }
 
 interface MatchdayProgressItem {
@@ -73,6 +94,24 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
   const [sendingNotice, setSendingNotice] = useState<'reminder' | 'ended' | null>(null);
   const [groupInput, setGroupInput] = useState('');
   const [autoPost, setAutoPost] = useState(true);
+
+  // AI Assistant state
+  const [aiMessages, setAiMessages] = useState<AssistantChatItem[]>([
+    {
+      id: 'welcome-ai',
+      role: 'assistant',
+      text: 'ሰላም! የቶርናመንቱ ቦት AI አሲስታንት ነኝ። ስለ ቶርናመንቱ መረጃ መጠየቅ፣ አዳዲስ ዜና ወደ ግሩፑ ማስተላለፍ፣ የዌብሳይቱን ግራፊክስ ፎቶዎች (Standings, Matchday Results, Upcoming Schedule) ወይም የተራዘሙ ጨዋታዎችን ፖስት ማድረግ ትችላላችሁ።',
+    },
+  ]);
+  const [aiInput, setAiInput] = useState('');
+  const [aiBusy, setAiBusy] = useState(false);
+  const [attachedImage, setAttachedImage] = useState<{
+    base64: string;
+    mimeType: string;
+    name: string;
+  } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
 
   const fetchStatus = useCallback(async (syncInputs = false) => {
     try {
@@ -189,6 +228,115 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
       if (onToast) onToast('Network error sending Telegram announcement.', 'error');
     } finally {
       setSendingNotice(null);
+    }
+  };
+
+  const handleAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onToast?.('Please select an image file (PNG/JPG).', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultStr = String(reader.result || '');
+      if (resultStr) {
+        setAttachedImage({
+          base64: resultStr,
+          mimeType: file.type,
+          name: file.name,
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleSendAiPrompt = async (overrideText?: string) => {
+    const promptText = (overrideText !== undefined ? overrideText : aiInput).trim();
+    if (!promptText && !attachedImage) return;
+
+    const currentAttachment = attachedImage;
+    const userMsg: AssistantChatItem = {
+      id: `u-${Date.now()}`,
+      role: 'user',
+      text: promptText || `Attached: ${currentAttachment?.name || 'Graphic'}`,
+      attachedPreview: currentAttachment?.base64,
+    };
+
+    const nextHistory = [...aiMessages, userMsg];
+    setAiMessages(nextHistory);
+    if (overrideText === undefined) setAiInput('');
+    setAttachedImage(null);
+    setAiBusy(true);
+
+    setTimeout(() => {
+      chatScrollRef.current?.scrollTo({
+        top: chatScrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }, 50);
+
+    try {
+      const res = await fetch('/api/telegram/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: promptText,
+          history: aiMessages
+            .filter((m) => m.id !== 'welcome-ai')
+            .slice(-8)
+            .map((m) => ({ role: m.role, text: m.text })),
+          imageBase64: currentAttachment?.base64,
+          imageMimeType: currentAttachment?.mimeType,
+        }),
+      });
+      const json = await res.json();
+      if (json.success) {
+        if (json.data) setStatus(json.data);
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            id: `a-${Date.now()}`,
+            role: 'assistant',
+            text: json.reply || 'Done.',
+            actions: Array.isArray(json.actions) ? json.actions : [],
+          },
+        ]);
+        const postedOk = Array.isArray(json.actions) && json.actions.some((a: AssistantActionRecord) => a.ok);
+        if (postedOk) {
+          onToast?.('Telegram group updated by AI Assistant!', 'success');
+        }
+      } else {
+        setAiMessages((prev) => [
+          ...prev,
+          {
+            id: `a-err-${Date.now()}`,
+            role: 'assistant',
+            text: `⚠️ ${json.error || 'Could not process request.'}`,
+          },
+        ]);
+        onToast?.(json.error || 'AI Assistant error.', 'error');
+      }
+    } catch {
+      setAiMessages((prev) => [
+        ...prev,
+        {
+          id: `a-net-${Date.now()}`,
+          role: 'assistant',
+          text: '⚠️ Network error contacting AI Assistant.',
+        },
+      ]);
+      onToast?.('Network error contacting AI Assistant.', 'error');
+    } finally {
+      setAiBusy(false);
+      setTimeout(() => {
+        chatScrollRef.current?.scrollTo({
+          top: chatScrollRef.current.scrollHeight,
+          behavior: 'smooth',
+        });
+      }, 80);
     }
   };
 
@@ -455,6 +603,228 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         )}
       </div>
 
+      {/* Bot AI Assistant & Group Broadcaster */}
+      <div className="rounded-xl border border-[#3ce7ff]/35 bg-[#05093e] p-4 mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#3ce7ff]/15 pb-3 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#3ce7ff]/15 border border-[#3ce7ff]/40 text-[#3ce7ff]">
+              <Bot className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <h4 className="font-sports text-sm uppercase tracking-wider text-white">
+                Bot AI Assistant · News, Graphics &amp; Postponed Broadcaster
+              </h4>
+              <p className="text-[11px] text-[#8e9bd4]">
+                Ask tournament questions in Amharic or English, tell the bot news to share, request website PNG graphics, or post postponed matches. Also works in Telegram via <span className="font-mono text-[#3ce7ff]">/ask</span> or DM to <span className="font-mono text-[#eaff28]">@{botUsername}</span>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <a
+              href="/api/telegram/graphic/standings"
+              download="efootball-standings.png"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#3ce7ff]/35 bg-[#071360] hover:border-[#3ce7ff] px-2.5 py-1 text-[10px] font-bold text-[#3ce7ff]"
+            >
+              <Download className="h-3 w-3" />
+              <span>Standings PNG</span>
+            </a>
+            <a
+              href="/api/telegram/graphic/upcoming"
+              download="efootball-upcoming-fixtures.png"
+              className="inline-flex items-center gap-1 rounded-lg border border-[#3ce7ff]/35 bg-[#071360] hover:border-[#3ce7ff] px-2.5 py-1 text-[10px] font-bold text-[#3ce7ff]"
+            >
+              <Download className="h-3 w-3" />
+              <span>Upcoming PNG</span>
+            </a>
+            <a
+              href="/api/telegram/graphic/postponed"
+              download="efootball-postponed-matches.png"
+              className="inline-flex items-center gap-1 rounded-lg border border-amber-400/35 bg-[#071360] hover:border-amber-400 px-2.5 py-1 text-[10px] font-bold text-amber-300"
+            >
+              <Download className="h-3 w-3" />
+              <span>Postponed PNG</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Chat Messages */}
+        <div
+          ref={chatScrollRef}
+          className="space-y-3 max-h-72 overflow-y-auto pr-1 mb-3"
+        >
+          {aiMessages.map((msg) => (
+            <div
+              key={msg.id}
+              className={`flex flex-col ${
+                msg.role === 'user' ? 'items-end' : 'items-start'
+              }`}
+            >
+              <div
+                className={`max-w-[90%] sm:max-w-[82%] rounded-xl px-3.5 py-2.5 text-xs leading-relaxed whitespace-pre-wrap ${
+                  msg.role === 'user'
+                    ? 'bg-[#081a7a] border border-[#3ce7ff]/40 text-white'
+                    : 'bg-[#040730] border border-[#eaff28]/25 text-[#e4eaff]'
+                }`}
+              >
+                {msg.attachedPreview && (
+                  <img
+                    src={msg.attachedPreview}
+                    alt="Attached graphic"
+                    className="mb-2 max-h-36 rounded-lg border border-[#3ce7ff]/30 object-contain"
+                  />
+                )}
+                <p>{msg.text}</p>
+                {msg.actions && msg.actions.length > 0 && (
+                  <div className="mt-2.5 space-y-2 border-t border-white/10 pt-2">
+                    {msg.actions.map((act, aIdx) => (
+                      <div
+                        key={`${msg.id}-act-${aIdx}`}
+                        className={`rounded-lg border px-2.5 py-1.5 text-[11px] ${
+                          act.ok
+                            ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-300'
+                            : 'border-rose-400/40 bg-rose-500/10 text-rose-300'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 font-bold">
+                          {act.ok ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                          ) : (
+                            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                          )}
+                          <span>{act.summary}</span>
+                        </div>
+                        {act.graphicPreviewBase64 && (
+                          <img
+                            src={act.graphicPreviewBase64}
+                            alt={act.graphicType || 'Posted Graphic'}
+                            className="mt-2 max-h-44 rounded-lg border border-[#3ce7ff]/30 object-contain"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+          {aiBusy && (
+            <div className="flex items-start">
+              <div className="rounded-xl bg-[#040730] border border-[#3ce7ff]/25 px-3.5 py-2 text-xs text-[#3ce7ff]">
+                Thinking &amp; preparing Telegram action...
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Quick Prompts */}
+        <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+          {[
+            {
+              label: '❓ የቶርናመንት ሁኔታ',
+              prompt: 'የቶርናመንቱን አሁን ያለ ሁኔታ፣ ደረጃ ሰንጠረዥ እና የዛሬ ጨዋታዎችን ንገረኝ።',
+              sendNow: true,
+            },
+            {
+              label: '📊 Standings ፎቶ ፖስት',
+              prompt: 'የደረጃ ሰንጠረዥ (Standings) ግራፊክ ፎቶ ከዌብሳይቱ አውጥተህ ወደ Telegram ግሩፑ ፖስት አድርግ።',
+              sendNow: true,
+            },
+            {
+              label: '📅 ቀጣይ ጨዋታዎች ፎቶ ፖስት',
+              prompt: 'የቀጣይ Matchday ጨዋታዎች (Upcoming Fixtures) ግራፊክ ፎቶ ወደ ግሩፑ ፖስት አድርግ።',
+              sendNow: true,
+            },
+            {
+              label: '⏳ የተራዘመ ጨዋታ ፖስት',
+              prompt: 'የተራዘሙ ጨዋታዎች ካሉ ከግራፊክ ፎቶ ጋር ወደ ግሩፑ ፖስት አድርግ።',
+              sendNow: true,
+            },
+            {
+              label: '📢 አዲስ ዜና ጻፍ',
+              prompt: 'አዲስ ዜና ወደ Telegram ግሩፑ ፖስት አድርግልኝ: ',
+              sendNow: false,
+            },
+          ].map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              disabled={aiBusy}
+              onClick={() => {
+                if (chip.sendNow) {
+                  handleSendAiPrompt(chip.prompt);
+                } else {
+                  setAiInput(chip.prompt);
+                }
+              }}
+              className="rounded-lg border border-[#3ce7ff]/30 bg-[#071360]/80 hover:border-[#eaff28] hover:text-[#eaff28] px-2.5 py-1 text-[10.5px] font-bold text-[#c7d3ff] transition-colors disabled:opacity-40 cursor-pointer"
+            >
+              {chip.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Attached Graphic Preview */}
+        {attachedImage && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-[#3ce7ff]/40 bg-[#071360] px-3 py-1.5 text-xs text-[#3ce7ff]">
+            <div className="flex items-center gap-2 truncate">
+              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate font-mono">{attachedImage.name}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAttachedImage(null)}
+              className="text-rose-300 hover:text-rose-200 cursor-pointer"
+              title="Remove attachment"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Composer */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSendAiPrompt();
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleAttachFile}
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={aiBusy}
+            title="Attach exported website PNG graphic or photo"
+            className="shrink-0 rounded-xl border border-[#3ce7ff]/40 bg-[#060a48] hover:border-[#eaff28] p-2.5 text-[#3ce7ff] hover:text-[#eaff28] transition-colors disabled:opacity-40 cursor-pointer"
+          >
+            <Paperclip className="h-4 w-4" />
+          </button>
+          <input
+            type="text"
+            value={aiInput}
+            onChange={(e) => setAiInput(e.target.value)}
+            disabled={aiBusy}
+            placeholder="ቦቱን ይጠይቁ ወይም ዜና/ግራፊክ/የተራዘመ ጨዋታ ወደ ግሩፑ እንዲልክ ይንገሩት..."
+            className="w-full rounded-xl border border-[#3ce7ff]/50 bg-[#060a48] px-3.5 py-2 text-xs text-white placeholder-[#8e9bd4]/75 focus:border-[#eaff28] focus:outline-none"
+          />
+          <button
+            type="submit"
+            disabled={aiBusy || (!aiInput.trim() && !attachedImage)}
+            className="shrink-0 flex items-center gap-1.5 rounded-xl bg-[#eaff28] hover:bg-[#d8ec1f] text-[#050842] px-4 py-2 text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-40 cursor-pointer"
+          >
+            <Send className="h-3.5 w-3.5 stroke-[2.5]" />
+            <span>{aiBusy ? '...' : 'Ask Bot'}</span>
+          </button>
+        </form>
+      </div>
+
       {/* Recent Verification Activity Feed */}
       <div>
         <h4 className="font-sports text-sm uppercase tracking-wider text-white mb-2.5">
@@ -470,7 +840,9 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
               const isSuccess =
                 ev.type === 'screenshot_recorded' ||
                 ev.type === 'matchday_graphic_posted' ||
-                ev.type === 'clock_announcement';
+                ev.type === 'clock_announcement' ||
+                ev.type === 'postponed_announcement' ||
+                ev.type === 'ai_assistant';
               const isWarn =
                 ev.type === 'screenshot_duplicate' ||
                 ev.type === 'screenshot_unmatched';

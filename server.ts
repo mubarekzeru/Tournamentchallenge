@@ -9,14 +9,21 @@ import {
   computeServerFixtures,
   ServerTournamentState,
 } from './server/firestoreBridge';
-import { generateMatchdayResultsPng } from './server/matchdayGraphicGenerator';
+import {
+  generateMatchdayResultsPng,
+  generateStandingsPng,
+  generateUpcomingFixturesPng,
+  generatePostponedMatchesPng,
+} from './server/matchdayGraphicGenerator';
 import {
   startTelegramBot,
   checkAndDispatchCompletedMatchdays,
   checkAndDispatchClockAnnouncements,
+  checkAndDispatchPostponedMatches,
   getTelegramStatusSnapshot,
   updateTelegramBotConfig,
 } from './server/telegramBot';
+import { runTelegramAiAssistant } from './server/telegramAssistant';
 
 dotenv.config();
 
@@ -196,11 +203,12 @@ app.post('/api/tournament', (req, res) => {
     return res.status(500).json({ success: false, error: 'Could not write to storage' });
   }
 
-  // Asynchronously check if any Matchday just became 100% completed or clock notice due
+  // Asynchronously check if any Matchday just became 100% completed, clock notice due, or postponed match added
   checkAndDispatchCompletedMatchdays(payload as ServerTournamentState).catch((err) => {
     console.warn('Telegram matchday check after update skipped/failed:', err);
   });
   checkAndDispatchClockAnnouncements(payload as ServerTournamentState).catch(() => {});
+  checkAndDispatchPostponedMatches(payload as ServerTournamentState).catch(() => {});
 
   res.json({ success: true, data: payload });
 });
@@ -374,6 +382,94 @@ app.get('/api/telegram/matchday-graphic/:matchday', async (req, res) => {
     res.status(500).json({
       success: false,
       error: err?.message || 'Failed to generate matchday graphic',
+    });
+  }
+});
+
+// Download/Preview additional website graphics (standings, upcoming, postponed)
+app.get('/api/telegram/graphic/:kind', async (req, res) => {
+  try {
+    const kind = String(req.params.kind || '').toLowerCase();
+    const state = await readLiveTournamentState();
+    const fixtures = computeServerFixtures(state);
+
+    let pngBuffer: Buffer;
+    let filename = 'efootball-graphic.png';
+
+    if (kind === 'standings') {
+      pngBuffer = await generateStandingsPng({
+        players: state.players || [],
+        results: state.results || [],
+      });
+      filename = 'efootball-standings.png';
+    } else if (kind === 'upcoming') {
+      const mdQuery = req.query.matchday ? Number(req.query.matchday) : undefined;
+      const generated = await generateUpcomingFixturesPng({
+        matchday: mdQuery && Number.isFinite(mdQuery) ? mdQuery : undefined,
+        fixtures,
+        results: state.results || [],
+        players: state.players || [],
+        clockConfig: state.clockConfig,
+      });
+      pngBuffer = generated.buffer;
+      filename = `efootball-matchday-${generated.matchday}-upcoming.png`;
+    } else if (kind === 'postponed') {
+      const generated = await generatePostponedMatchesPng({
+        results: state.results || [],
+        players: state.players || [],
+      });
+      pngBuffer = generated.buffer;
+      filename = 'efootball-postponed-matches.png';
+    } else {
+      return res.status(400).json({ success: false, error: 'Invalid graphic kind' });
+    }
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(pngBuffer);
+  } catch (err: any) {
+    console.error('Website graphic PNG error:', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'Failed to generate graphic PNG',
+    });
+  }
+});
+
+// Telegram Bot AI Assistant endpoint (Admin Chat, News Broadcaster, Graphic Poster, Postponed Notifier)
+app.post('/api/telegram/assistant', async (req, res) => {
+  try {
+    const { message, history, imageBase64, imageMimeType } = req.body || {};
+    const cleanMsg = typeof message === 'string' ? message.trim() : '';
+    if (!cleanMsg && !imageBase64) {
+      return res.status(400).json({
+        success: false,
+        error: 'Message or image attachment is required.',
+      });
+    }
+
+    const aiRes = await runTelegramAiAssistant({
+      message: cleanMsg || 'Please post this attached website graphic to the Telegram group.',
+      history: Array.isArray(history) ? history : [],
+      canBroadcast: true,
+      imageBase64: typeof imageBase64 === 'string' ? imageBase64 : undefined,
+      imageMimeType: typeof imageMimeType === 'string' ? imageMimeType : undefined,
+    });
+
+    const snapshot = await getTelegramStatusSnapshot();
+    res.json({
+      success: true,
+      reply: aiRes.reply,
+      actions: aiRes.actions,
+      modelUsed: aiRes.modelUsed,
+      usedFallback: aiRes.usedFallback,
+      data: snapshot,
+    });
+  } catch (err: any) {
+    console.error('Telegram AI Assistant endpoint error:', err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || 'AI Assistant could not process your request.',
     });
   }
 });

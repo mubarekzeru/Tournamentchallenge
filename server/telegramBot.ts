@@ -11,7 +11,10 @@ import {
   analyzeMatchScreenshot,
   resolveScheduledFixtureForScreenshot,
 } from './screenshotAnalyzer';
-import { generateMatchdayResultsPng } from './matchdayGraphicGenerator';
+import {
+  generateMatchdayResultsPng,
+  generatePostponedMatchesPng,
+} from './matchdayGraphicGenerator';
 import { MatchResult } from '../src/types/tournament';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -26,6 +29,8 @@ export interface TelegramBotEvent {
     | 'screenshot_unmatched'
     | 'matchday_graphic_posted'
     | 'clock_announcement'
+    | 'postponed_announcement'
+    | 'ai_assistant'
     | 'error';
   matchday?: number;
   summary: string;
@@ -38,6 +43,7 @@ export interface TelegramBotState {
   autoPostMatchdayGraphic: boolean;
   postedMatchdays: number[];
   sentClockReminders: string[];
+  announcedPostponedIds: string[];
   lastUpdateId: number;
   processedMessageKeys: string[];
   recentEvents: TelegramBotEvent[];
@@ -55,6 +61,7 @@ const DEFAULT_BOT_STATE: TelegramBotState = {
   autoPostMatchdayGraphic: true,
   postedMatchdays: [],
   sentClockReminders: [],
+  announcedPostponedIds: [],
   lastUpdateId: 0,
   processedMessageKeys: [],
   recentEvents: [],
@@ -84,6 +91,9 @@ function loadBotState(): TelegramBotState {
           : [],
         sentClockReminders: Array.isArray(parsed.sentClockReminders)
           ? parsed.sentClockReminders
+          : [],
+        announcedPostponedIds: Array.isArray(parsed.announcedPostponedIds)
+          ? parsed.announcedPostponedIds
           : [],
         processedMessageKeys: Array.isArray(parsed.processedMessageKeys)
           ? parsed.processedMessageKeys
@@ -120,6 +130,56 @@ function pushEvent(ev: Omit<TelegramBotEvent, 'id' | 'timestamp'>) {
     ...botState.recentEvents,
   ].slice(0, 25);
   saveBotState();
+}
+
+export function getLinkedGroupInfo() {
+  return {
+    groupChatId: botState.groupChatId,
+    groupChatTitle: botState.groupChatTitle,
+  };
+}
+
+export function recordBotEvent(ev: Omit<TelegramBotEvent, 'id' | 'timestamp'>) {
+  pushEvent(ev);
+}
+
+export function markMatchdayPosted(matchday: number) {
+  if (!botState.postedMatchdays.includes(matchday)) {
+    botState.postedMatchdays.push(matchday);
+    botState.postedMatchdays.sort((a, b) => a - b);
+    saveBotState();
+  }
+}
+
+export function markPostponedAnnounced(ids: string[]) {
+  let changed = false;
+  for (const id of ids) {
+    if (id && !botState.announcedPostponedIds.includes(id)) {
+      botState.announcedPostponedIds.push(id);
+      changed = true;
+    }
+  }
+  if (botState.announcedPostponedIds.length > 120) {
+    botState.announcedPostponedIds = botState.announcedPostponedIds.slice(-120);
+  }
+  if (changed) saveBotState();
+}
+
+const chatAiHistories = new Map<string, Array<{ role: 'user' | 'assistant'; text: string }>>();
+let isCheckingPostponed = false;
+
+async function isTelegramGroupAdmin(userId?: number): Promise<boolean> {
+  if (!userId || !botState.groupChatId) return false;
+  try {
+    const res = await telegramApi<{ status?: string }>('getChatMember', {
+      chat_id: botState.groupChatId,
+      user_id: userId,
+    });
+    const status = res.result?.status;
+    return status === 'creator' || status === 'administrator';
+  } catch {
+    return false;
+  }
 }
 
 async function telegramApi<T = any>(
@@ -427,16 +487,19 @@ async function handleTelegramMessage(msg: any) {
   saveBotState();
 
   const text = (msg.text || '').trim();
+  const cmd = text.startsWith('/')
+    ? text.split(/\s+/)[0].toLowerCase().split('@')[0]
+    : '';
+
   if (text.startsWith('/')) {
-    const cmd = text.split(/\s+/)[0].toLowerCase().split('@')[0];
     if (cmd === '/start' || cmd === '/help') {
       await sendTelegramMessage(
         chat.id,
-        `⚽ <b>Ethiopian eFootball Tournament Bot Active!</b>\n\n` +
+        `⚽ <b>Ethiopian eFootball Tournament Bot + AI Assistant</b>\n\n` +
           `• Players: Post your <b>eFootball Match History</b> or <b>Full Time</b> screenshot in this group after finishing a match.\n` +
-          `• I automatically match club logos, club names, and usernames to publish your score directly on the tournament website.\n` +
-          `• Once all matches of a Matchday are complete, I automatically post that Matchday's official downloadable results graphic here!\n\n` +
-          `Commands: /status · /matchday`,
+          `• Ask me anything about the tournament using <code>/ask &lt;question&gt;</code> or by messaging me directly in private chat!\n` +
+          `• Admins can ask me to post news, website graphics (standings, matchday results, upcoming schedule), or postponed match alerts.\n\n` +
+          `Commands: /status · /matchday · /ask`,
         msg.message_id
       );
       return;
@@ -499,6 +562,78 @@ async function handleTelegramMessage(msg: any) {
       );
       return;
     }
+  }
+
+  // Conversational AI Assistant in Telegram:
+  // Triggered via /ask ..., @BotUsername mention, reply to the bot's own message, or private DM text
+  const botHandle = botInfo?.username ? `@${botInfo.username.toLowerCase()}` : '';
+  const isPrivateChat = chat.type === 'private';
+  const isAskCommand = cmd === '/ask' || cmd === '/ai';
+  const isMentioned =
+    Boolean(botHandle) && text.toLowerCase().includes(botHandle);
+  const isReplyToBot =
+    Boolean(msg.reply_to_message?.from?.id) &&
+    Boolean(botInfo?.id) &&
+    msg.reply_to_message.from.id === botInfo?.id;
+
+  if (text && (isPrivateChat || isAskCommand || isMentioned || isReplyToBot) && !msg.photo?.length) {
+    let promptText = text;
+    if (isAskCommand) {
+      promptText = text.replace(/^\/(ask|ai)(@\S+)?\s*/i, '').trim();
+    } else if (isMentioned && botInfo?.username) {
+      promptText = text.replace(new RegExp(`@${botInfo.username}`, 'ig'), '').trim();
+    }
+
+    if (!promptText) {
+      await sendTelegramMessage(
+        chat.id,
+        `🤖 እባክዎ የቶርናመንት ጥያቄዎን ይጻፉ (ምሳሌ: <code>/ask የዛሬ ጨዋታዎች እና ደረጃ ሰንጠረዥ እንዴት ነው?</code>)`,
+        msg.message_id
+      );
+      return;
+    }
+
+    const senderDisplayName = [msg.from?.first_name, msg.from?.last_name]
+      .filter(Boolean)
+      .join(' ') || msg.from?.username;
+    const isAdmin = await isTelegramGroupAdmin(msg.from?.id);
+    const chatKey = String(chat.id);
+    const prevHistory = chatAiHistories.get(chatKey) || [];
+
+    try {
+      await telegramApi('sendChatAction', { chat_id: chat.id, action: 'typing' });
+      const { runTelegramAiAssistant } = await import('./telegramAssistant');
+      const aiRes = await runTelegramAiAssistant({
+        message: promptText,
+        history: prevHistory,
+        canBroadcast: isAdmin,
+        senderName: senderDisplayName,
+        replyChatId: chat.id,
+      });
+
+      const nextHistory = [
+        ...prevHistory,
+        { role: 'user' as const, text: promptText },
+        { role: 'assistant' as const, text: aiRes.reply },
+      ].slice(-8);
+      chatAiHistories.set(chatKey, nextHistory);
+
+      pushEvent({
+        type: 'ai_assistant',
+        summary: `Telegram AI reply to ${senderDisplayName || 'user'}${isAdmin ? ' (Admin)' : ''}`,
+        detail: promptText.slice(0, 120),
+      });
+
+      await sendTelegramMessage(chat.id, escapeHtml(aiRes.reply), msg.message_id);
+    } catch (err: any) {
+      console.error('Telegram AI chat error:', err);
+      await sendTelegramMessage(
+        chat.id,
+        `⚠️ AI Assistant error: ${escapeHtml(err?.message || 'Unable to reply right now.')}`,
+        msg.message_id
+      );
+    }
+    return;
   }
 
   // Check for photo OR uncompressed image document
@@ -958,6 +1093,86 @@ export async function checkAndDispatchClockAnnouncements(
   }
 }
 
+export async function checkAndDispatchPostponedMatches(
+  providedState?: ServerTournamentState,
+  options?: { forceAll?: boolean }
+): Promise<{ announcedIds: string[]; error?: string }> {
+  if (isCheckingPostponed && !options?.forceAll) {
+    return { announcedIds: [] };
+  }
+  isCheckingPostponed = true;
+
+  try {
+    const state = providedState || (await readLiveTournamentState());
+    const chatId = botState.groupChatId;
+    if (!chatId) {
+      return { announcedIds: [], error: 'No Telegram group linked yet.' };
+    }
+
+    const postponed = (state.results || []).filter((r) => Boolean(r.isPostponed));
+    if (postponed.length === 0) {
+      return { announcedIds: [] };
+    }
+
+    const targets = options?.forceAll
+      ? postponed
+      : postponed.filter((r) => !botState.announcedPostponedIds.includes(r.id));
+
+    if (targets.length === 0) {
+      return { announcedIds: [] };
+    }
+
+    const playerMap = new Map(
+      (state.players || []).map((p) => [p.user.toLowerCase(), p])
+    );
+
+    const lines = targets.map((r) => {
+      const h = playerMap.get(r.home_user.toLowerCase())?.team || r.home_user;
+      const a = playerMap.get(r.away_user.toLowerCase())?.team || r.away_user;
+      const reason = r.postponedReason ? ` (${r.postponedReason})` : '';
+      const resched = r.rescheduledMatchday
+        ? ` → ወደ Matchday ${r.rescheduledMatchday} ተዛውሯል`
+        : '';
+      return `• MD ${r.matchday}: <b>${escapeHtml(h)}</b> (@${escapeHtml(r.home_user)}) vs <b>${escapeHtml(a)}</b> (@${escapeHtml(r.away_user)})${escapeHtml(reason)}${escapeHtml(resched)}`;
+    });
+
+    const caption =
+      `⏳ <b>የተራዘመ ጨዋታ ማሳሰቢያ / Match Postponed</b>\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `📌 እነዚህ ጨዋታዎች እስኪጫወቱ ድረስ በጊዜያዊነት ተራዝመዋል።`;
+
+    const { buffer } = await generatePostponedMatchesPng({
+      results: state.results || [],
+      players: state.players || [],
+    });
+
+    const photoRes = await sendTelegramPhoto(
+      chatId,
+      buffer,
+      'ethiopian-efootball-postponed-matches.png',
+      caption.slice(0, 1000)
+    );
+
+    if (!photoRes.ok) {
+      return { announcedIds: [], error: photoRes.error || 'Failed sending postponed notice' };
+    }
+
+    const announcedIds = targets.map((r) => r.id);
+    markPostponedAnnounced(announcedIds);
+    pushEvent({
+      type: 'postponed_announcement',
+      summary: `Posted postponed match notice (${targets.length} match${targets.length === 1 ? '' : 'es'})`,
+      detail: targets.map((r) => `${r.home_user} vs ${r.away_user}`).join(', '),
+    });
+
+    return { announcedIds };
+  } catch (err: any) {
+    return { announcedIds: [], error: err?.message || 'Postponed check failed' };
+  } finally {
+    isCheckingPostponed = false;
+  }
+}
+
 export async function startTelegramBot() {
   const token = getBotToken();
   if (!token) {
@@ -988,9 +1203,11 @@ export async function startTelegramBot() {
   if (!clockMonitorTimer) {
     checkAndDispatchClockAnnouncements().catch(() => {});
     checkAndDispatchCompletedMatchdays().catch(() => {});
+    checkAndDispatchPostponedMatches().catch(() => {});
     clockMonitorTimer = setInterval(() => {
       checkAndDispatchClockAnnouncements().catch(() => {});
       checkAndDispatchCompletedMatchdays().catch(() => {});
+      checkAndDispatchPostponedMatches().catch(() => {});
     }, 30_000);
   }
 }
