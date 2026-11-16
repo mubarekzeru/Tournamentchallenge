@@ -1,15 +1,17 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import { Fixture, MatchResult, Player } from '../src/types/tournament';
 import { findResultForFixture } from './firestoreBridge';
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+function getAiClient(): GoogleGenAI {
+  return new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
     },
-  },
-});
+  });
+}
 
 export interface AnalyzedMatchScreenshot {
   isMatchScreenshot: boolean;
@@ -220,63 +222,83 @@ Here is the posted match screenshot to verify:`,
     }
   }
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-4-hydrogen',
-    contents: { parts },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          isMatchScreenshot: {
-            type: Type.BOOLEAN,
-            description: 'True only if image is a valid eFootball completed match score screenshot.',
-          },
-          homeTeamName: { type: Type.STRING },
-          homeUsername: { type: Type.STRING },
-          homeLogoDescription: { type: Type.STRING },
-          awayTeamName: { type: Type.STRING },
-          awayUsername: { type: Type.STRING },
-          awayLogoDescription: { type: Type.STRING },
-          homeScore: { type: Type.INTEGER },
-          awayScore: { type: Type.INTEGER },
-          hasPenaltyShootout: { type: Type.BOOLEAN },
-          penaltyHomeScore: { type: Type.INTEGER, nullable: true },
-          penaltyAwayScore: { type: Type.INTEGER, nullable: true },
-          matchedHomeUser: {
-            type: Type.STRING,
-            description: 'Exact player username from roster matching left/home side, or empty string.',
-          },
-          matchedAwayUser: {
-            type: Type.STRING,
-            description: 'Exact player username from roster matching right/away side, or empty string.',
-          },
-          confidence: {
-            type: Type.INTEGER,
-            description: 'Confidence score from 0 to 100.',
-          },
-          matchReasoning: {
-            type: Type.STRING,
-            description: 'Brief note explaining how logos/names/usernames were matched.',
-          },
+  const ai = getAiClient();
+  const schemaConfig = {
+    responseMimeType: 'application/json',
+    responseSchema: {
+      type: Type.OBJECT,
+      properties: {
+        isMatchScreenshot: {
+          type: Type.BOOLEAN,
+          description: 'True only if image is a valid eFootball completed match score screenshot.',
         },
-        required: [
-          'isMatchScreenshot',
-          'homeTeamName',
-          'homeUsername',
-          'awayTeamName',
-          'awayUsername',
-          'homeScore',
-          'awayScore',
-          'hasPenaltyShootout',
-          'matchedHomeUser',
-          'matchedAwayUser',
-          'confidence',
-          'matchReasoning',
-        ],
+        homeTeamName: { type: Type.STRING },
+        homeUsername: { type: Type.STRING },
+        homeLogoDescription: { type: Type.STRING },
+        awayTeamName: { type: Type.STRING },
+        awayUsername: { type: Type.STRING },
+        awayLogoDescription: { type: Type.STRING },
+        homeScore: { type: Type.INTEGER },
+        awayScore: { type: Type.INTEGER },
+        hasPenaltyShootout: { type: Type.BOOLEAN },
+        penaltyHomeScore: { type: Type.INTEGER, nullable: true },
+        penaltyAwayScore: { type: Type.INTEGER, nullable: true },
+        matchedHomeUser: {
+          type: Type.STRING,
+          description: 'Exact player username from roster matching left/home side, or empty string.',
+        },
+        matchedAwayUser: {
+          type: Type.STRING,
+          description: 'Exact player username from roster matching right/away side, or empty string.',
+        },
+        confidence: {
+          type: Type.INTEGER,
+          description: 'Confidence score from 0 to 100.',
+        },
+        matchReasoning: {
+          type: Type.STRING,
+          description: 'Brief note explaining how logos/names/usernames were matched.',
+        },
       },
+      required: [
+        'isMatchScreenshot',
+        'homeTeamName',
+        'homeUsername',
+        'awayTeamName',
+        'awayUsername',
+        'homeScore',
+        'awayScore',
+        'hasPenaltyShootout',
+        'matchedHomeUser',
+        'matchedAwayUser',
+        'confidence',
+        'matchReasoning',
+      ],
     },
-  });
+  };
+
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: { parts },
+      config: {
+        ...schemaConfig,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    });
+  } catch (err: any) {
+    const errMsg = String(err?.message || err || '');
+    if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota')) {
+      response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: { parts },
+        config: schemaConfig,
+      });
+    } else {
+      throw err;
+    }
+  }
 
   const rawText = (response.text ?? '{}').trim();
   const parsed = JSON.parse(rawText) as AnalyzedMatchScreenshot;

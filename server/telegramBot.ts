@@ -336,22 +336,30 @@ export async function checkAndDispatchCompletedMatchdays(
       const playerMap = new Map(
         (state.players || []).map((p) => [p.user.toLowerCase(), p])
       );
-      const summaryLines = mdCompletedResults
-        .map((r) => {
-          const homeName =
-            playerMap.get(r.home_user.toLowerCase())?.team || r.home_user;
-          const awayName =
-            playerMap.get(r.away_user.toLowerCase())?.team || r.away_user;
-          return `• <b>${escapeHtml(homeName)}</b> ${r.home_score} - ${r.away_score} <b>${escapeHtml(awayName)}</b>`;
-        })
-        .join('\n');
+      const summaryArr = mdCompletedResults.map((r) => {
+        const homeName =
+          playerMap.get(r.home_user.toLowerCase())?.team || r.home_user;
+        const awayName =
+          playerMap.get(r.away_user.toLowerCase())?.team || r.away_user;
+        return `• <b>${escapeHtml(homeName)}</b> ${r.home_score} - ${r.away_score} <b>${escapeHtml(awayName)}</b>`;
+      });
 
-      const caption = `🏆 <b>MATCHDAY ${md} COMPLETE — OFFICIAL RESULTS GRAPHIC</b>\n\nAll ${mdFixtures.length} matches of Matchday ${md} have finished (${totalGoals} total goals):\n${summaryLines}\n\n📊 Downloadable high-res Matchday ${md} results poster attached above!`;
+      const headline = `⚽ <b>የዛሬው Matchday ${md} ጨዋታ ይሄንን ይመስላል</b>\n\n🏆 <b>MATCHDAY ${md} RESULTS (${mdFixtures.length}/${mdFixtures.length} · ${totalGoals} ጎሎች)</b>`;
+      let summaryBlock = '';
+      for (const line of summaryArr) {
+        if (`${headline}\n${summaryBlock}\n${line}`.length <= 980) {
+          summaryBlock += `${summaryBlock ? '\n' : ''}${line}`;
+        } else {
+          break;
+        }
+      }
+
+      const caption = summaryBlock ? `${headline}\n${summaryBlock}` : headline;
 
       const sendRes = await sendTelegramPhoto(
         chatId,
         pngBuffer,
-        `efootball-matchday-${md}-results.png`,
+        `ethiopian-efootball-matchday-${md}-results.png`,
         caption
       );
 
@@ -979,8 +987,10 @@ export async function startTelegramBot() {
 
   if (!clockMonitorTimer) {
     checkAndDispatchClockAnnouncements().catch(() => {});
+    checkAndDispatchCompletedMatchdays().catch(() => {});
     clockMonitorTimer = setInterval(() => {
       checkAndDispatchClockAnnouncements().catch(() => {});
+      checkAndDispatchCompletedMatchdays().catch(() => {});
     }, 30_000);
   }
 }

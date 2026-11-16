@@ -273,13 +273,13 @@ export async function generateMatchdayResultsPng(
   <text x="${paddingX + 33}" y="82" text-anchor="middle" fill="#eaff28" font-size="34" font-weight="bold" font-family="eFootball Stencil">e</text>
 
   <circle cx="${paddingX + 92}" cy="46" r="5" fill="#eaff28" />
-  <text x="${paddingX + 106}" y="51" fill="#eaff28" font-size="13.5" font-weight="bold" letter-spacing="1.4" font-family="eFootball Stencil">OFFICIAL MATCHDAY RESULTS · ETHIOPIAN eFOOTBALL</text>
+  <text x="${paddingX + 106}" y="51" fill="#eaff28" font-size="13.5" font-weight="bold" letter-spacing="1.4" font-family="eFootball Stencil">OFFICIAL MATCH RESULTS BULLETIN · ETHIOPIAN eFOOTBALL</text>
   <text x="${paddingX + 86}" y="86" fill="#ffffff" font-size="34" font-weight="bold" letter-spacing="0.6" font-family="eFootball Stencil">MATCHDAY ${matchday} RESULTS</text>
-  <text x="${paddingX + 86}" y="110" fill="#3ce7ff" font-size="14" font-family="eFootball Sans">${escapeXml(stageSubtitle)}</text>
+  <text x="${paddingX + 86}" y="110" fill="#3ce7ff" font-size="14" font-family="eFootball Sans">${escapeXml(`Verified Final Scores · Single Matchday ${matchday} Bulletin`)}</text>
 
   <!-- Right Pill Stamp -->
-  <rect x="${width - paddingX - 196}" y="42" width="196" height="30" rx="15" fill="#050842" stroke="#3ce7ff" stroke-opacity="0.5" stroke-width="1.5" />
-  <text x="${width - paddingX - 98}" y="62" text-anchor="middle" fill="#eaff28" font-size="12" font-weight="bold" font-family="eFootball Stencil">MATCHDAY ${matchday} COMPLETE</text>
+  <rect x="${width - paddingX - 210}" y="42" width="210" height="30" rx="15" fill="#050842" stroke="#3ce7ff" stroke-opacity="0.5" stroke-width="1.5" />
+  <text x="${width - paddingX - 105}" y="62" text-anchor="middle" fill="#eaff28" font-size="12" font-weight="bold" font-family="eFootball Stencil">MATCHDAY ${matchday} OFFICIAL</text>
   <text x="${width - paddingX}" y="92" text-anchor="end" fill="#8e9bd4" font-size="12" font-family="eFootball Sans">Generated ${escapeXml(dateLabel)}</text>
 
   <line x1="${paddingX}" y1="134" x2="${width - paddingX}" y2="134" stroke="#3ce7ff" stroke-opacity="0.28" stroke-width="1.5" />
@@ -293,7 +293,7 @@ export async function generateMatchdayResultsPng(
   <text x="${paddingX + (width - paddingX * 2) / 6}" y="${statsY + 66}" text-anchor="middle" fill="#8e9bd4" font-size="12" font-family="eFootball Sans">MATCHES COMPLETED</text>
 
   <text x="${width / 2}" y="${statsY + 42}" text-anchor="middle" fill="#eaff28" font-size="30" font-weight="bold" font-family="eFootball Stencil">${totalGoals}</text>
-  <text x="${width / 2}" y="${statsY + 66}" text-anchor="middle" fill="#8e9bd4" font-size="12" font-family="eFootball Sans">TOTAL GOALS IN MATCHDAY ${matchday}</text>
+  <text x="${width / 2}" y="${statsY + 66}" text-anchor="middle" fill="#8e9bd4" font-size="12" font-family="eFootball Sans">TOTAL GOALS SCORED</text>
 
   <text x="${width - paddingX - (width - paddingX * 2) / 6}" y="${statsY + 42}" text-anchor="middle" fill="#3ce7ff" font-size="30" font-weight="bold" font-family="eFootball Stencil">${avgGoals}</text>
   <text x="${width - paddingX - (width - paddingX * 2) / 6}" y="${statsY + 66}" text-anchor="middle" fill="#8e9bd4" font-size="12" font-family="eFootball Sans">AVG GOALS / MATCH</text>
@@ -303,8 +303,8 @@ export async function generateMatchdayResultsPng(
 
   <!-- Footer -->
   <line x1="${paddingX}" y1="${footerY - 22}" x2="${width - paddingX}" y2="${footerY - 22}" stroke="#3ce7ff" stroke-opacity="0.22" stroke-width="1.5" />
-  <text x="${paddingX}" y="${footerY + 4}" fill="#8e9bd4" font-size="12.5" font-family="eFootball Sans">Official Ethiopian eFootball Certified Matchday ${matchday} Bulletin</text>
-  <text x="${width - paddingX}" y="${footerY + 4}" text-anchor="end" fill="#3ce7ff" font-size="12.5" font-family="eFootball Sans">Telegram Group Official Broadcast</text>
+  <text x="${paddingX}" y="${footerY + 4}" fill="#8e9bd4" font-size="12.5" font-family="eFootball Sans">${escapeXml(stageSubtitle)}</text>
+  <text x="${width - paddingX}" y="${footerY + 4}" text-anchor="end" fill="#3ce7ff" font-size="12.5" font-family="eFootball Sans">Official Ethiopian eFootball Matchday ${matchday} Bulletin</text>
 </svg>`;
 
   const fontFiles: string[] = [];

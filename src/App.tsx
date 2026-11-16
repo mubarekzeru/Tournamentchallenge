@@ -330,7 +330,7 @@ export default function App() {
     };
 
     fetchServerBackup();
-    const serverPoll = setInterval(fetchServerBackup, 15_000);
+    const serverPoll = setInterval(fetchServerBackup, 5_000);
 
     return () => {
       isMounted = false;
