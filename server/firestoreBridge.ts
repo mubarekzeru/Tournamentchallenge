@@ -48,7 +48,82 @@ export interface ServerTournamentState {
   groupStageConfig?: GroupStageConfig;
   clockConfig?: MatchClockConfig;
   isRegistrationEnded?: boolean;
+  deletedResultIds?: string[];
+  resultsResetAt?: string;
   updatedAt?: string;
+}
+
+function getFixtureResultKey(r: MatchResult): string {
+  const pair = [
+    (r.home_user || '').trim().toLowerCase(),
+    (r.away_user || '').trim().toLowerCase(),
+  ]
+    .sort()
+    .join('::');
+  if (r.isKnockout) {
+    return `ko::${r.stage || r.matchday}::${pair}`;
+  }
+  return `md${r.matchday}::${pair}`;
+}
+
+export function mergeTournamentResultsSafely(
+  primary: MatchResult[],
+  secondary: MatchResult[],
+  options?: {
+    deletedIds?: string[];
+    resultsResetAt?: string;
+  }
+): MatchResult[] {
+  const deletedSet = new Set(options?.deletedIds || []);
+  const resetCutoff = options?.resultsResetAt
+    ? Date.parse(options.resultsResetAt) || 0
+    : 0;
+
+  const isEligible = (r: MatchResult): boolean => {
+    if (!r || !r.id) return false;
+    if (deletedSet.has(r.id)) return false;
+    if (resetCutoff > 0) {
+      const subMs = r.submitted_at ? Date.parse(r.submitted_at) || 0 : 0;
+      if (subMs > 0 && subMs <= resetCutoff) return false;
+    }
+    return true;
+  };
+
+  const byKey = new Map<string, MatchResult>();
+
+  for (const r of primary) {
+    if (!isEligible(r)) continue;
+    byKey.set(getFixtureResultKey(r), r);
+  }
+
+  for (const r of secondary) {
+    if (!isEligible(r)) continue;
+    const key = getFixtureResultKey(r);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, r);
+      continue;
+    }
+
+    // Never allow a bot-auto-recorded screenshot result to replace a manual website result
+    const existingIsManual = !existing.id.startsWith('res-tg-');
+    const incomingIsManual = !r.id.startsWith('res-tg-');
+    if (incomingIsManual && !existingIsManual) {
+      byKey.set(key, r);
+    } else if (incomingIsManual === existingIsManual) {
+      const exTime = existing.submitted_at ? Date.parse(existing.submitted_at) || 0 : 0;
+      const inTime = r.submitted_at ? Date.parse(r.submitted_at) || 0 : 0;
+      if (inTime > exTime) {
+        byKey.set(key, r);
+      }
+    }
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => {
+    const tA = a.submitted_at ? Date.parse(a.submitted_at) || 0 : 0;
+    const tB = b.submitted_at ? Date.parse(b.submitted_at) || 0 : 0;
+    return tB - tA;
+  });
 }
 
 export function sanitizeForFirestore<T>(data: T): T {
@@ -112,12 +187,52 @@ export async function readLiveTournamentState(): Promise<ServerTournamentState> 
         const localTime = local?.updatedAt ? Date.parse(local.updatedAt) : 0;
         const remoteTime = remote.updatedAt ? Date.parse(remote.updatedAt) : 0;
 
-        // Keep whichever state is newer (important when server bot updated local storage while Firestore rules require auth)
-        if (local && localTime > remoteTime) {
-          return local;
+        if (!local) {
+          saveLocalTournamentFile(remote);
+          return remote;
         }
-        saveLocalTournamentFile(remote);
-        return remote;
+
+        const mergedDeletedIds = Array.from(
+          new Set([
+            ...(local.deletedResultIds || []),
+            ...(remote.deletedResultIds || []),
+          ])
+        ).slice(-100);
+
+        const localResetMs = local.resultsResetAt
+          ? Date.parse(local.resultsResetAt) || 0
+          : 0;
+        const remoteResetMs = remote.resultsResetAt
+          ? Date.parse(remote.resultsResetAt) || 0
+          : 0;
+        const latestResetIso =
+          localResetMs >= remoteResetMs
+            ? local.resultsResetAt
+            : remote.resultsResetAt;
+
+        const base = localTime > remoteTime ? local : remote;
+        const other = localTime > remoteTime ? remote : local;
+
+        const mergedResults = mergeTournamentResultsSafely(
+          base.results || [],
+          other.results || [],
+          {
+            deletedIds: mergedDeletedIds,
+            resultsResetAt: latestResetIso,
+          }
+        );
+
+        const reconciled: ServerTournamentState = {
+          ...base,
+          results: mergedResults,
+          ...(mergedDeletedIds.length > 0
+            ? { deletedResultIds: mergedDeletedIds }
+            : {}),
+          ...(latestResetIso ? { resultsResetAt: latestResetIso } : {}),
+        };
+
+        saveLocalTournamentFile(reconciled);
+        return reconciled;
       }
     }
   } catch (err) {

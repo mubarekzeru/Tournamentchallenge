@@ -44,6 +44,8 @@ import { ToastContainer, ToastMessage } from './components/Toast';
 import {
   subscribeTournamentData,
   saveTournamentDataToFirestore,
+  pushSnapshotToFirestoreOnly,
+  getTournamentDataOnce,
 } from './services/tournamentSync';
 import { auth, getUserProfile, AppUserProfile } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -213,7 +215,7 @@ export default function App() {
 
   // Sync to Firestore & server so all devices worldwide see the exact same data and profile pictures
   const syncToServer = useCallback(
-    (
+    async (
       playersToSync: Player[],
       resultsToSync: MatchResult[],
       passcode?: string,
@@ -222,7 +224,7 @@ export default function App() {
       clockConfigToSync?: MatchClockConfig,
       isRegistrationEndedToSync?: boolean
     ) => {
-      return saveTournamentDataToFirestore({
+      const res = await saveTournamentDataToFirestore({
         players: playersToSync,
         results: resultsToSync,
         adminPasscode: passcode || adminPasscode,
@@ -232,12 +234,157 @@ export default function App() {
         isRegistrationEnded:
           isRegistrationEndedToSync !== undefined ? isRegistrationEndedToSync : isRegistrationEnded,
       });
+      if (!res.firestoreOk && res.reason === 'auth_required' && !authWarningShownRef.current) {
+        authWarningShownRef.current = true;
+        const id = `${Date.now()}-${Math.random()}`;
+        setToasts((prev) => [
+          ...prev,
+          {
+            id,
+            text: 'Saved on server/device. Click Sign In with Google (top right) to publish live to Firebase for everyone!',
+            type: 'info',
+          },
+        ]);
+        setTimeout(() => {
+          setToasts((prev) => prev.filter((t) => t.id !== id));
+        }, 5000);
+      }
+      return res;
     },
     [adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, isRegistrationEnded]
   );
 
   const hasFirestoreDataRef = useRef(false);
   const latestRemoteTimestampRef = useRef<number>(0);
+  const latestFirestoreTimestampRef = useRef<number>(0);
+  const latestServerPayloadRef = useRef<any>(null);
+  const lastBridgedServerTimeRef = useRef<number>(0);
+  const isBridgingToFirestoreRef = useRef<boolean>(false);
+  const lastManualMutationRef = useRef<number>(0);
+  const deletedResultIdsRef = useRef<Set<string>>(new Set());
+  const lastResultsResetAtRef = useRef<number>(0);
+
+  const getFixturePairKeyClient = useCallback((r: MatchResult): string => {
+    const pair = [
+      (r.home_user || '').trim().toLowerCase(),
+      (r.away_user || '').trim().toLowerCase(),
+    ]
+      .sort()
+      .join('::');
+    if (r.isKnockout) {
+      return `ko::${r.stage || r.matchday}::${pair}`;
+    }
+    return `md${r.matchday}::${pair}`;
+  }, []);
+
+  const mergeManualAndIncomingResults = useCallback(
+    (
+      currentResults: MatchResult[],
+      incomingResults: MatchResult[],
+      options?: { onlyNewBotResults?: boolean; botCutoffMs?: number }
+    ): MatchResult[] => {
+      const deletedSet = deletedResultIdsRef.current;
+      const resetCutoff = lastResultsResetAtRef.current;
+      const byKey = new Map<string, MatchResult>();
+
+      for (const r of currentResults) {
+        if (!r || !r.id || deletedSet.has(r.id)) continue;
+        byKey.set(getFixturePairKeyClient(r), r);
+      }
+
+      for (const r of incomingResults) {
+        if (!r || !r.id || deletedSet.has(r.id)) continue;
+        const subMs = r.submitted_at ? Date.parse(r.submitted_at) || 0 : 0;
+        if (resetCutoff > 0 && subMs > 0 && subMs <= resetCutoff) continue;
+
+        if (options?.onlyNewBotResults) {
+          if (!r.id.startsWith('res-tg-')) continue;
+          if (options.botCutoffMs && subMs > 0 && subMs <= options.botCutoffMs) {
+            continue;
+          }
+        }
+
+        const key = getFixturePairKeyClient(r);
+        const existing = byKey.get(key);
+        if (!existing) {
+          byKey.set(key, r);
+          continue;
+        }
+
+        // Manual website entries must NEVER be overwritten by Telegram bot entries
+        const existingIsManual = !existing.id.startsWith('res-tg-');
+        const incomingIsManual = !r.id.startsWith('res-tg-');
+        if (incomingIsManual && !existingIsManual) {
+          byKey.set(key, r);
+        } else if (incomingIsManual === existingIsManual) {
+          const exTime = existing.submitted_at
+            ? Date.parse(existing.submitted_at) || 0
+            : 0;
+          if (subMs > exTime) {
+            byKey.set(key, r);
+          }
+        }
+      }
+
+      return Array.from(byKey.values()).sort((a, b) => {
+        const tA = a.submitted_at ? Date.parse(a.submitted_at) || 0 : 0;
+        const tB = b.submitted_at ? Date.parse(b.submitted_at) || 0 : 0;
+        return tB - tA;
+      });
+    },
+    [getFixturePairKeyClient]
+  );
+
+  const tryBridgeServerToFirestore = useCallback(async () => {
+    const serverData = latestServerPayloadRef.current;
+    if (!auth.currentUser || !serverData || isBridgingToFirestoreRef.current) return;
+    const serverTime = serverData.updatedAt ? Date.parse(serverData.updatedAt) : 0;
+    if (
+      serverTime > 0 &&
+      serverTime > latestFirestoreTimestampRef.current &&
+      serverTime > lastBridgedServerTimeRef.current &&
+      serverTime >= lastManualMutationRef.current
+    ) {
+      isBridgingToFirestoreRef.current = true;
+      try {
+        // Re-check latest Firestore state before bridging so manual matches from other devices are NEVER wiped
+        const remoteDoc = await getTournamentDataOnce();
+        if (Array.isArray(serverData.deletedResultIds)) {
+          serverData.deletedResultIds.forEach((id: string) =>
+            deletedResultIdsRef.current.add(id)
+          );
+        }
+        if (serverData.resultsResetAt) {
+          const srvResetMs = Date.parse(serverData.resultsResetAt) || 0;
+          if (srvResetMs > lastResultsResetAtRef.current) {
+            lastResultsResetAtRef.current = srvResetMs;
+          }
+        }
+
+        const mergedResults = remoteDoc?.results
+          ? mergeManualAndIncomingResults(
+              remoteDoc.results,
+              Array.isArray(serverData.results) ? serverData.results : []
+            )
+          : Array.isArray(serverData.results)
+          ? serverData.results
+          : [];
+
+        const payloadToPush = {
+          ...serverData,
+          results: mergedResults,
+        };
+
+        const ok = await pushSnapshotToFirestoreOnly(payloadToPush);
+        if (ok) {
+          lastBridgedServerTimeRef.current = serverTime;
+          latestFirestoreTimestampRef.current = serverTime;
+        }
+      } finally {
+        isBridgingToFirestoreRef.current = false;
+      }
+    }
+  }, [mergeManualAndIncomingResults]);
 
   // Real-time synchronization via Firebase Firestore + Server API (including Telegram Bot match updates)
   useEffect(() => {
@@ -246,6 +393,15 @@ export default function App() {
     const applyRemoteState = (data: any, source: 'firestore' | 'server') => {
       if (!isMounted || !data) return;
       const incomingTime = data.updatedAt ? Date.parse(data.updatedAt) : 0;
+
+      // Never allow stale server or cached updates to overwrite recent manual Admin edits
+      if (incomingTime > 0 && incomingTime < lastManualMutationRef.current) {
+        return;
+      }
+
+      if (source === 'firestore' && incomingTime > latestFirestoreTimestampRef.current) {
+        latestFirestoreTimestampRef.current = incomingTime;
+      }
       if (incomingTime > 0 && incomingTime < latestRemoteTimestampRef.current) {
         return;
       }
@@ -253,8 +409,44 @@ export default function App() {
         latestRemoteTimestampRef.current = incomingTime;
       }
 
+      if (Array.isArray(data.deletedResultIds)) {
+        data.deletedResultIds.forEach((id: string) => deletedResultIdsRef.current.add(id));
+      }
+      if (data.resultsResetAt) {
+        const resetMs = Date.parse(data.resultsResetAt) || 0;
+        if (resetMs > lastResultsResetAtRef.current) {
+          lastResultsResetAtRef.current = resetMs;
+        }
+      }
+
       if (source === 'firestore') {
         hasFirestoreDataRef.current = true;
+      }
+
+      // If Firestore is already active and this payload came from /api/tournament polling,
+      // ONLY merge brand-new bot-verified results without replacing manual website results/players!
+      if (source === 'server' && hasFirestoreDataRef.current) {
+        if (Array.isArray(data.results) && data.results.length > 0) {
+          const cutoffMs = Math.max(
+            latestFirestoreTimestampRef.current,
+            lastManualMutationRef.current,
+            lastResultsResetAtRef.current
+          );
+          setResults((prev) => {
+            const merged = mergeManualAndIncomingResults(prev, data.results, {
+              onlyNewBotResults: true,
+              botCutoffMs: cutoffMs,
+            });
+            if (merged.length !== prev.length) {
+              try {
+                localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(merged));
+              } catch {}
+              return merged;
+            }
+            return prev;
+          });
+        }
+        return;
       }
 
       if (data.players && Array.isArray(data.players)) {
@@ -264,9 +456,17 @@ export default function App() {
         } catch {}
       }
       if (data.results && Array.isArray(data.results)) {
-        setResults(data.results);
+        const safeResults = data.results.filter((r: MatchResult) => {
+          if (!r || !r.id || deletedResultIdsRef.current.has(r.id)) return false;
+          if (lastResultsResetAtRef.current > 0 && r.submitted_at) {
+            const subMs = Date.parse(r.submitted_at) || 0;
+            if (subMs > 0 && subMs <= lastResultsResetAtRef.current) return false;
+          }
+          return true;
+        });
+        setResults(safeResults);
         try {
-          localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(data.results));
+          localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(safeResults));
         } catch {}
       }
       if (data.adminPasscode) {
@@ -315,15 +515,20 @@ export default function App() {
       applyRemoteState(data, 'firestore');
     });
 
-    // 2. Check /api/tournament periodically so Telegram Bot results update browsers immediately
+    // 2. Check /api/tournament periodically so Telegram Bot results update browsers safely
     const fetchServerBackup = () => {
       fetch('/api/tournament')
         .then((res) => res.json())
         .then((json) => {
           if (!isMounted || !json.success || !json.data) return;
+          latestServerPayloadRef.current = json.data;
           const serverTime = json.data.updatedAt ? Date.parse(json.data.updatedAt) : 0;
+          if (serverTime <= lastManualMutationRef.current) return;
           if (!hasFirestoreDataRef.current || serverTime > latestRemoteTimestampRef.current) {
             applyRemoteState(json.data, 'server');
+          }
+          if (auth.currentUser && serverTime > latestFirestoreTimestampRef.current) {
+            tryBridgeServerToFirestore();
           }
         })
         .catch(() => {});
@@ -337,7 +542,15 @@ export default function App() {
       unsubscribe();
       clearInterval(serverPoll);
     };
-  }, []);
+  }, [tryBridgeServerToFirestore, mergeManualAndIncomingResults]);
+
+  // As soon as a Google user signs in, push any newer server/Telegram bot snapshot to Firestore
+  useEffect(() => {
+    if (currentUser?.uid) {
+      authWarningShownRef.current = false;
+      tryBridgeServerToFirestore();
+    }
+  }, [currentUser?.uid, tryBridgeServerToFirestore]);
 
   // Toast notification helper
   const addToast = useCallback(
@@ -374,6 +587,7 @@ export default function App() {
   // Handler to generate matches automatically for chosen format
   const handleGenerateMatches = useCallback(
     (newFormat: TournamentFormat) => {
+      lastManualMutationRef.current = Date.now();
       setTournamentFormat(newFormat);
       try {
         localStorage.setItem(STORAGE_KEY_FORMAT, newFormat);
@@ -403,6 +617,7 @@ export default function App() {
 
   const handleUpdateGroupConfig = useCallback(
     (newConfig: GroupStageConfig) => {
+      lastManualMutationRef.current = Date.now();
       setGroupStageConfig(newConfig);
       try {
         localStorage.setItem(STORAGE_KEY_GROUP_CONFIG, JSON.stringify(newConfig));
@@ -597,6 +812,7 @@ export default function App() {
         return;
       }
 
+      lastManualMutationRef.current = Date.now();
       setIsRegistrationEnded(nextVal);
       try {
         localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(nextVal));
@@ -741,6 +957,7 @@ export default function App() {
       (r) => activeUsers.has(r.home_user) && activeUsers.has(r.away_user)
     );
 
+    lastManualMutationRef.current = Date.now();
     setBasePlayers(updatedPlayers);
     setResults(updatedResults);
 
@@ -775,6 +992,7 @@ export default function App() {
       );
     }
 
+    lastManualMutationRef.current = Date.now();
     setBasePlayers(remaining);
     setResults(updatedResults);
     try {
@@ -794,6 +1012,8 @@ export default function App() {
   // Feature: Delete All Players in administration to save time and easily start fresh
   const handleDeleteAllPlayers = () => {
     const previousCount = basePlayers.length;
+    lastManualMutationRef.current = Date.now();
+    lastResultsResetAtRef.current = Date.now();
     setBasePlayers([]);
     setResults([]);
     setSelectedPlayer(null);
@@ -824,6 +1044,7 @@ export default function App() {
     });
 
     const removedCount = initialCount - cleanedResults.length;
+    lastManualMutationRef.current = Date.now();
     setResults(cleanedResults);
     try {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(cleanedResults));
@@ -846,8 +1067,10 @@ export default function App() {
     resultData: Omit<MatchResult, 'id' | 'submitted_at'>,
     existingId?: string
   ) => {
+    lastManualMutationRef.current = Date.now();
     let updatedResults: MatchResult[];
     if (existingId) {
+      deletedResultIdsRef.current.delete(existingId);
       updatedResults = results.map((r) => {
         if (r.id === existingId) {
           const updated: MatchResult = {
@@ -890,6 +1113,8 @@ export default function App() {
       setIsAdminModalOpen(true);
       return;
     }
+    lastManualMutationRef.current = Date.now();
+    deletedResultIdsRef.current.add(resultId);
     const updatedResults = results.filter((r) => r.id !== resultId);
     setResults(updatedResults);
     try {
@@ -901,6 +1126,10 @@ export default function App() {
 
   const handleResetData = () => {
     if (window.confirm('Are you sure you want to reset all match results? This will re-open player registrations.')) {
+      const now = Date.now();
+      lastManualMutationRef.current = now;
+      lastResultsResetAtRef.current = now;
+      results.forEach((r) => deletedResultIdsRef.current.add(r.id));
       setResults([]);
       setIsRegistrationEnded(false);
       try {
@@ -937,6 +1166,7 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
+        lastManualMutationRef.current = Date.now();
         if (parsed.players && Array.isArray(parsed.players)) {
           setBasePlayers(parsed.players);
           try {
@@ -944,6 +1174,8 @@ export default function App() {
           } catch (err) {}
         }
         if (parsed.results && Array.isArray(parsed.results)) {
+          deletedResultIdsRef.current.clear();
+          lastResultsResetAtRef.current = 0;
           setResults(parsed.results);
           try {
             localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(parsed.results));
@@ -997,6 +1229,7 @@ export default function App() {
   });
 
   const handleToggleCountdown = (val?: boolean) => {
+    lastManualMutationRef.current = Date.now();
     const nextVal = typeof val === 'boolean' ? val : !showCountdown;
     setShowCountdown(nextVal);
     const updatedClock = { ...matchClockConfig, enabled: nextVal };
@@ -1010,6 +1243,7 @@ export default function App() {
   };
 
   const handleUpdateCountdownTarget = (dateStr: string) => {
+    lastManualMutationRef.current = Date.now();
     setCountdownTargetDate(dateStr);
     const updatedClock = { ...matchClockConfig, startDate: dateStr };
     setMatchClockConfig(updatedClock);
@@ -1022,6 +1256,7 @@ export default function App() {
   };
 
   const handleUpdateMatchClockConfig = (newConfig: MatchClockConfig) => {
+    lastManualMutationRef.current = Date.now();
     setMatchClockConfig(newConfig);
     setShowCountdown(newConfig.enabled);
     setCountdownTargetDate(newConfig.startDate);

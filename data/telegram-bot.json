@@ -2,9 +2,11 @@
   "groupChatId": -1003707889805,
   "groupChatTitle": "eFootball™ Tournament",
   "autoPostMatchdayGraphic": true,
+  "autoRecordScreenshots": false,
   "postedMatchdays": [],
   "sentClockReminders": [
-    "1_2026-11-16T20:00:00.000Z:rem_3h"
+    "1_2026-11-16T20:00:00.000Z:rem_3h",
+    "1_2026-11-16T20:00:00.000Z:rem_2h"
   ],
   "announcedPostponedIds": [],
   "lastUpdateId": 6202234,
@@ -20,6 +22,14 @@
     "752686239:85"
   ],
   "recentEvents": [
+    {
+      "id": "tg-ev-1794852001043-055z",
+      "timestamp": "2026-11-16T18:00:01.043Z",
+      "type": "clock_announcement",
+      "matchday": 1,
+      "summary": "Sent 2h remaining Amharic reminder to Telegram group",
+      "detail": "ውድ የ efootball ተወዳዳሪዎች ጨዋታው ሊጠናቀቅ 2 ሰአት ነው የቀረው። ያልተጫወታችሁ ካላችሁ ጨዋታችሁን አጠናቁ"
+    },
     {
       "id": "tg-ev-1794850249784-3qlh",
       "timestamp": "2026-11-16T17:30:49.784Z",

@@ -155,6 +155,33 @@ export async function saveTournamentDataToFirestore(payload: {
   }
 }
 
+// Bridge a newer server/Telegram-bot snapshot directly into Firestore (without re-POSTing to /api/tournament)
+export async function pushSnapshotToFirestoreOnly(payload: Record<string, any>): Promise<boolean> {
+  if (!auth.currentUser || !payload || !Array.isArray(payload.players)) {
+    return false;
+  }
+  const cleanPayload = sanitizeForFirestore({
+    ...payload,
+    updatedAt: payload.updatedAt || new Date().toISOString(),
+  });
+  const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
+  try {
+    const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
+    await setDoc(docRef, cleanPayload);
+    return true;
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    if (msg.toLowerCase().includes('permission')) {
+      try {
+        handleFirestoreError(err, OperationType.WRITE, docPath);
+      } catch {
+        // Caught after diagnostic log
+      }
+    }
+    return false;
+  }
+}
+
 // Purge obsolete data: removes any scores or matches belonging to members not in activePlayers
 export function purgeOrphanedMatchScores(
   activePlayers: Player[],

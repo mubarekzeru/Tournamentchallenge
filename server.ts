@@ -167,12 +167,39 @@ app.post('/api/tournament', (req, res) => {
   }
 
   const existingData = loadTournamentData();
+  const prevResults: any[] = Array.isArray(existingData?.results)
+    ? existingData.results
+    : [];
+  const nextResultIds = new Set(
+    (Array.isArray(results) ? results : []).map((r: any) => r?.id).filter(Boolean)
+  );
+  const newlyDeletedIds = prevResults
+    .map((r: any) => r?.id)
+    .filter((id: string) => Boolean(id) && !nextResultIds.has(id));
+  const combinedDeletedIds = Array.from(
+    new Set([
+      ...(Array.isArray(existingData?.deletedResultIds)
+        ? existingData.deletedResultIds.filter((id: string) => !nextResultIds.has(id))
+        : []),
+      ...newlyDeletedIds,
+    ])
+  ).slice(-100);
+
   const payload: Record<string, any> = {
     players,
     results,
     adminPasscode: adminPasscode || existingData?.adminPasscode || DEFAULT_ADMIN_PASSCODE,
     updatedAt: new Date().toISOString(),
   };
+
+  if (combinedDeletedIds.length > 0) {
+    payload.deletedResultIds = combinedDeletedIds;
+  }
+  if (Array.isArray(results) && results.length === 0 && prevResults.length > 0) {
+    payload.resultsResetAt = new Date().toISOString();
+  } else if (existingData?.resultsResetAt) {
+    payload.resultsResetAt = existingData.resultsResetAt;
+  }
 
   if (tournamentFormat !== undefined) {
     payload.tournamentFormat = tournamentFormat;
@@ -283,10 +310,12 @@ app.get('/api/telegram/status', async (_req, res) => {
 
 app.post('/api/telegram/config', async (req, res) => {
   try {
-    const { groupChatId, autoPostMatchdayGraphic } = req.body || {};
+    const { groupChatId, autoPostMatchdayGraphic, autoRecordScreenshots } =
+      req.body || {};
     updateTelegramBotConfig({
       groupChatId,
       autoPostMatchdayGraphic,
+      autoRecordScreenshots,
     });
     const snapshot = await getTelegramStatusSnapshot();
     res.json({ success: true, data: snapshot });

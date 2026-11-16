@@ -41,6 +41,7 @@ export interface TelegramBotState {
   groupChatId: string | number | null;
   groupChatTitle: string;
   autoPostMatchdayGraphic: boolean;
+  autoRecordScreenshots: boolean;
   postedMatchdays: number[];
   sentClockReminders: string[];
   announcedPostponedIds: string[];
@@ -59,6 +60,7 @@ const DEFAULT_BOT_STATE: TelegramBotState = {
   groupChatId: process.env.TELEGRAM_GROUP_CHAT_ID || null,
   groupChatTitle: '',
   autoPostMatchdayGraphic: true,
+  autoRecordScreenshots: false,
   postedMatchdays: [],
   sentClockReminders: [],
   announcedPostponedIds: [],
@@ -650,6 +652,11 @@ async function handleTelegramMessage(msg: any) {
 
   if (!fileId) return;
 
+  // Respect manual-entry mode: when autoRecordScreenshots is OFF, never analyze screenshots or overwrite manual scores
+  if (!botState.autoRecordScreenshots) {
+    return;
+  }
+
   // Download image from Telegram
   const downloaded = await downloadTelegramFile(fileId);
   if (!downloaded) {
@@ -725,15 +732,6 @@ async function handleTelegramMessage(msg: any) {
       summary: `Duplicate screenshot skipped (MD ${f.matchday}): ${homeName} vs ${awayName}`,
       detail: ex ? `Already recorded: ${ex.home_score}-${ex.away_score}` : undefined,
     });
-    await sendTelegramMessage(
-      chat.id,
-      `ℹ️ <b>Already Recorded (Matchday ${f.matchday})</b>\n${escapeHtml(
-        homeName
-      )} vs ${escapeHtml(awayName)} is already published on the website${
-        ex ? ` (<b>${ex.home_score} - ${ex.away_score}</b>)` : ''
-      }.`,
-      msg.message_id
-    );
     return;
   }
 
@@ -752,23 +750,34 @@ async function handleTelegramMessage(msg: any) {
           ? 'Both clubs matched roster, but no pending scheduled fixture remains between them.'
           : analysis.matchReasoning,
     });
-    await sendTelegramMessage(
-      chat.id,
-      `⚠️ <b>Could Not Auto-Post Screenshot</b>\nRead: <b>${escapeHtml(
-        analysis.homeTeamName || analysis.homeUsername || 'Left Club'
-      )}</b> ${analysis.homeScore} - ${analysis.awayScore} <b>${escapeHtml(
-        analysis.awayTeamName || analysis.awayUsername || 'Right Club'
-      )}</b>\nReason: ${
-        resolution.status === 'no_scheduled_fixture'
-          ? 'No pending tournament fixture found between these two players.'
-          : 'Could not match both clubs/usernames/logos to registered tournament players.'
-      }`,
-      msg.message_id
-    );
     return;
   }
 
   const chosenFixture = resolution.fixture;
+
+  // CRITICAL: Re-read fresh state right after AI call so manual scores entered by Admin in the meantime are NEVER overwritten!
+  const latestState = await readLiveTournamentState();
+  const existingAfterRead = findResultForFixture(
+    chosenFixture,
+    latestState.results || []
+  );
+  if (existingAfterRead) {
+    const pMap = new Map(
+      (latestState.players || players).map((p) => [p.user.toLowerCase(), p])
+    );
+    pushEvent({
+      type: 'screenshot_duplicate',
+      matchday: chosenFixture.matchday,
+      summary: `Skipped — already recorded on website (MD ${chosenFixture.matchday}): ${
+        pMap.get(chosenFixture.home.toLowerCase())?.team || chosenFixture.home
+      } vs ${
+        pMap.get(chosenFixture.away.toLowerCase())?.team || chosenFixture.away
+      }`,
+      detail: `Website score preserved: ${existingAfterRead.home_score}-${existingAfterRead.away_score}`,
+    });
+    return;
+  }
+
   const newResult: MatchResult = {
     id: `res-tg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     matchday: chosenFixture.matchday,
@@ -790,22 +799,25 @@ async function handleTelegramMessage(msg: any) {
       : {}),
   };
 
-  const updatedResults = [newResult, ...(state.results || [])];
+  const updatedResults = [newResult, ...(latestState.results || [])];
   const updatedState: ServerTournamentState = {
-    ...state,
+    ...latestState,
     results: updatedResults,
   };
 
   await writeLiveTournamentState(updatedState);
 
-  const playerMap = new Map(players.map((p) => [p.user.toLowerCase(), p]));
+  const playerMap = new Map(
+    (latestState.players || players).map((p) => [p.user.toLowerCase(), p])
+  );
   const homeDisplay =
     playerMap.get(chosenFixture.home.toLowerCase())?.team || chosenFixture.home;
   const awayDisplay =
     playerMap.get(chosenFixture.away.toLowerCase())?.team || chosenFixture.away;
 
+  const latestFixtures = computeServerFixtures(updatedState);
   // Check matchday completion progress
-  const mdFixtures = allFixtures.filter(
+  const mdFixtures = latestFixtures.filter(
     (f) => f.matchday === chosenFixture.matchday
   );
   const mdCompletedCount = mdFixtures.filter((f) =>
@@ -1244,6 +1256,7 @@ export async function getTelegramStatusSnapshot() {
     groupChatId: botState.groupChatId,
     groupChatTitle: botState.groupChatTitle,
     autoPostMatchdayGraphic: botState.autoPostMatchdayGraphic,
+    autoRecordScreenshots: botState.autoRecordScreenshots,
     postedMatchdays: botState.postedMatchdays,
     sentClockReminders: botState.sentClockReminders,
     activeDeadlineEndIso: resolvedClock ? new Date(resolvedClock.endMs).toISOString() : null,
@@ -1255,6 +1268,7 @@ export async function getTelegramStatusSnapshot() {
 export function updateTelegramBotConfig(updates: {
   groupChatId?: string | number | null;
   autoPostMatchdayGraphic?: boolean;
+  autoRecordScreenshots?: boolean;
 }) {
   if (updates.groupChatId !== undefined) {
     const val =
@@ -1265,6 +1279,9 @@ export function updateTelegramBotConfig(updates: {
   }
   if (typeof updates.autoPostMatchdayGraphic === 'boolean') {
     botState.autoPostMatchdayGraphic = updates.autoPostMatchdayGraphic;
+  }
+  if (typeof updates.autoRecordScreenshots === 'boolean') {
+    botState.autoRecordScreenshots = updates.autoRecordScreenshots;
   }
   saveBotState();
   return botState;

@@ -69,6 +69,7 @@ interface TelegramStatusSnapshot {
   groupChatId: string | number | null;
   groupChatTitle: string;
   autoPostMatchdayGraphic: boolean;
+  autoRecordScreenshots: boolean;
   postedMatchdays: number[];
   sentClockReminders?: string[];
   activeDeadlineEndIso?: string | null;
@@ -94,6 +95,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
   const [sendingNotice, setSendingNotice] = useState<'reminder' | 'ended' | null>(null);
   const [groupInput, setGroupInput] = useState('');
   const [autoPost, setAutoPost] = useState(true);
+  const [autoRecord, setAutoRecord] = useState(false);
 
   // AI Assistant state
   const [aiMessages, setAiMessages] = useState<AssistantChatItem[]>([
@@ -123,6 +125,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         if (syncInputs) {
           setGroupInput(data.groupChatId ? String(data.groupChatId) : '');
           setAutoPost(Boolean(data.autoPostMatchdayGraphic));
+          setAutoRecord(Boolean(data.autoRecordScreenshots));
         }
       }
     } catch {
@@ -143,8 +146,14 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
     fetchStatus(false);
   }, [results.length, fetchStatus]);
 
-  const handleSaveConfig = async (nextAutoPost?: boolean) => {
-    const autoPostVal = nextAutoPost !== undefined ? nextAutoPost : autoPost;
+  const handleSaveConfig = async (overrides?: {
+    autoPost?: boolean;
+    autoRecord?: boolean;
+  }) => {
+    const autoPostVal =
+      overrides?.autoPost !== undefined ? overrides.autoPost : autoPost;
+    const autoRecordVal =
+      overrides?.autoRecord !== undefined ? overrides.autoRecord : autoRecord;
     setSavingConfig(true);
     try {
       const res = await fetch('/api/telegram/config', {
@@ -153,12 +162,14 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
         body: JSON.stringify({
           groupChatId: groupInput.trim() || null,
           autoPostMatchdayGraphic: autoPostVal,
+          autoRecordScreenshots: autoRecordVal,
         }),
       });
       const json = await res.json();
       if (json.success && json.data) {
         setStatus(json.data);
         setAutoPost(Boolean(json.data.autoPostMatchdayGraphic));
+        setAutoRecord(Boolean(json.data.autoRecordScreenshots));
         if (onToast) onToast('Telegram Group Bot settings updated.', 'success');
       } else if (onToast) {
         onToast(json.error || 'Failed to save Telegram settings.', 'error');
@@ -389,49 +400,94 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
 
       {/* Group Linking & Auto-Post Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
-        <div className="lg:col-span-7 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#3ce7ff] flex items-center gap-1.5">
-              <Users className="h-3.5 w-3.5" />
-              Linked Telegram Group
-            </span>
-            {status?.groupChatId ? (
-              <span className="rounded-md bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-mono text-emerald-300">
-                {status.groupChatTitle
-                  ? `${status.groupChatTitle} (${status.groupChatId})`
-                  : `ID: ${status.groupChatId}`}
+        <div className="lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#3ce7ff] flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" />
+                Linked Telegram Group
               </span>
-            ) : (
-              <span className="rounded-md bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 text-[10px] font-mono text-amber-300">
-                Auto-detecting on next group message
-              </span>
-            )}
-          </div>
+              {status?.groupChatId ? (
+                <span className="rounded-md bg-emerald-500/15 border border-emerald-400/40 px-2 py-0.5 text-[10px] font-mono text-emerald-300 truncate max-w-[160px]">
+                  {status.groupChatTitle
+                    ? `${status.groupChatTitle}`
+                    : `ID: ${status.groupChatId}`}
+                </span>
+              ) : (
+                <span className="rounded-md bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 text-[10px] font-mono text-amber-300">
+                  Auto-detecting
+                </span>
+              )}
+            </div>
 
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 mt-2">
-            <input
-              type="text"
-              value={groupInput}
-              onChange={(e) => setGroupInput(e.target.value)}
-              placeholder="Auto-filled on group activity (or enter @group_handle / -100... ID)"
-              className="w-full rounded-xl border border-[#3ce7ff]/60 bg-[#060a48] px-3 py-2 text-xs font-mono text-white placeholder-[#8e9bd4]/70 focus:border-[#eaff28] focus:outline-none"
-            />
-            <button
-              type="button"
-              disabled={savingConfig}
-              onClick={() => handleSaveConfig()}
-              className="shrink-0 flex items-center gap-1.5 rounded-xl bg-[#3ce7ff] hover:bg-[#6ef0ff] text-[#050842] px-4 py-2 text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
-            >
-              <Check className="h-3.5 w-3.5 stroke-[2.5]" />
-              <span>{savingConfig ? 'Saving...' : 'Save Group'}</span>
-            </button>
+            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 mt-2">
+              <input
+                type="text"
+                value={groupInput}
+                onChange={(e) => setGroupInput(e.target.value)}
+                placeholder="Group ID / @handle"
+                className="w-full rounded-xl border border-[#3ce7ff]/60 bg-[#060a48] px-3 py-2 text-xs font-mono text-white placeholder-[#8e9bd4]/70 focus:border-[#eaff28] focus:outline-none"
+              />
+              <button
+                type="button"
+                disabled={savingConfig}
+                onClick={() => handleSaveConfig()}
+                className="shrink-0 flex items-center gap-1.5 rounded-xl bg-[#3ce7ff] hover:bg-[#6ef0ff] text-[#050842] px-3.5 py-2 text-xs font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
+              >
+                <Check className="h-3.5 w-3.5 stroke-[2.5]" />
+                <span>{savingConfig ? '...' : 'Save'}</span>
+              </button>
+            </div>
           </div>
-          <p className="mt-2 text-[11px] text-[#8e9bd4]">
-            Tip: Make <span className="font-mono text-[#eaff28]">@{botUsername}</span> an admin in your Telegram tournament group and send <span className="font-mono text-[#3ce7ff]">/status</span> or any photo to link automatically.
+          <p className="mt-2.5 text-[11px] text-[#8e9bd4]">
+            Make <span className="font-mono text-[#eaff28]">@{botUsername}</span> an admin in your group and send <span className="font-mono text-[#3ce7ff]">/status</span> to link.
           </p>
         </div>
 
-        <div className="lg:col-span-5 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
+        {/* Manual Safe Mode vs AI Auto-Record Toggle */}
+        <div className="lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-[#3ce7ff] flex items-center gap-1.5">
+                <Bot className="h-3.5 w-3.5" />
+                Auto-Record Screenshots
+              </span>
+              <p className="mt-1 text-[11px] text-[#b9c4f0]">
+                {autoRecord
+                  ? 'Bot reads Telegram screenshots automatically, while preserving any scores you entered manually on the website.'
+                  : 'Paused (Manual Mode): Bot ignores Telegram screenshots & stops group error messages so you can record matches manually.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              disabled={savingConfig}
+              onClick={() => {
+                const next = !autoRecord;
+                setAutoRecord(next);
+                handleSaveConfig({ autoRecord: next });
+              }}
+              className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer ${
+                autoRecord
+                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                  : 'border-amber-400/60 bg-amber-500/15 text-amber-300'
+              }`}
+            >
+              {autoRecord ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/15 flex items-center justify-between text-[11px] text-[#8e9bd4]">
+            <span className="flex items-center gap-1">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" />
+              Manual website scores always protected
+            </span>
+            <span className={`font-mono ${autoRecord ? 'text-emerald-300' : 'text-amber-300'}`}>
+              {autoRecord ? 'AI Active' : 'Manual'}
+            </span>
+          </div>
+        </div>
+
+        <div className="lg:col-span-4 rounded-xl border border-[#3ce7ff]/25 bg-[#05093e] p-4 flex flex-col justify-between">
           <div className="flex items-start justify-between gap-3">
             <div>
               <span className="text-xs font-bold uppercase tracking-wider text-[#eaff28] flex items-center gap-1.5">
@@ -448,7 +504,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
               onClick={() => {
                 const next = !autoPost;
                 setAutoPost(next);
-                handleSaveConfig(next);
+                handleSaveConfig({ autoPost: next });
               }}
               className={`shrink-0 rounded-xl px-3 py-1.5 text-xs font-black uppercase border transition-all cursor-pointer ${
                 autoPost
@@ -463,7 +519,7 @@ export const TelegramBotPanel: React.FC<TelegramBotPanelProps> = ({
           <div className="mt-3 pt-2.5 border-t border-[#3ce7ff]/15 flex items-center justify-between text-[11px] text-[#8e9bd4]">
             <span className="flex items-center gap-1">
               <ShieldCheck className="h-3.5 w-3.5 text-[#3ce7ff]" />
-              Posts 1 Matchday per graphic (never full season)
+              Posts 1 Matchday per graphic
             </span>
             <span className="font-mono text-[#eaff28]">
               {status?.postedMatchdays?.length || 0} posted

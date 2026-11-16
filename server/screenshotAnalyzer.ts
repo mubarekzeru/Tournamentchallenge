@@ -349,6 +349,94 @@ export function resolveScheduledFixtureForScreenshot(params: {
     );
   }
 
+  // If exactly one side matched unambiguously (e.g. opponent name truncated as '...'),
+  // infer the single unplayed fixture in the earliest active Matchday for that player.
+  if ((!homePlayer && awayPlayer) || (homePlayer && !awayPlayer)) {
+    const matchedOnLeft = Boolean(homePlayer);
+    const knownPlayer = (homePlayer || awayPlayer)!;
+
+    const allUnplayed = fixtures.filter((f) => !findResultForFixture(f, results));
+    const earliestActiveMd =
+      allUnplayed.length > 0
+        ? Math.min(...allUnplayed.map((f) => f.matchday))
+        : null;
+
+    const playerActiveUnplayed =
+      earliestActiveMd !== null
+        ? allUnplayed.filter(
+            (f) =>
+              f.matchday === earliestActiveMd &&
+              (f.home.toLowerCase() === knownPlayer.user.toLowerCase() ||
+                f.away.toLowerCase() === knownPlayer.user.toLowerCase())
+          )
+        : [];
+
+    if (playerActiveUnplayed.length === 1) {
+      const chosenFixture = playerActiveUnplayed[0];
+      const opponentUser =
+        chosenFixture.home.toLowerCase() === knownPlayer.user.toLowerCase()
+          ? chosenFixture.away
+          : chosenFixture.home;
+      const inferredOpponent = findExactRoster(opponentUser);
+
+      if (inferredOpponent) {
+        if (matchedOnLeft) {
+          awayPlayer = inferredOpponent;
+        } else {
+          homePlayer = inferredOpponent;
+        }
+
+        const isSwapped = matchedOnLeft
+          ? chosenFixture.home.toLowerCase() !== knownPlayer.user.toLowerCase()
+          : chosenFixture.away.toLowerCase() !== knownPlayer.user.toLowerCase();
+
+        const normalizedHomeScore = isSwapped
+          ? analysis.awayScore
+          : analysis.homeScore;
+        const normalizedAwayScore = isSwapped
+          ? analysis.homeScore
+          : analysis.awayScore;
+
+        let penaltyWinner: string | undefined;
+        let penaltyHomeScore: number | undefined;
+        let penaltyAwayScore: number | undefined;
+
+        if (
+          analysis.hasPenaltyShootout &&
+          analysis.penaltyHomeScore !== null &&
+          analysis.penaltyAwayScore !== null &&
+          analysis.penaltyHomeScore !== undefined &&
+          analysis.penaltyAwayScore !== undefined
+        ) {
+          penaltyHomeScore = isSwapped
+            ? analysis.penaltyAwayScore
+            : analysis.penaltyHomeScore;
+          penaltyAwayScore = isSwapped
+            ? analysis.penaltyHomeScore
+            : analysis.penaltyAwayScore;
+
+          if (penaltyHomeScore > penaltyAwayScore) {
+            penaltyWinner = chosenFixture.home;
+          } else if (penaltyAwayScore > penaltyHomeScore) {
+            penaltyWinner = chosenFixture.away;
+          }
+        }
+
+        return {
+          status: 'matched_unplayed',
+          homePlayer,
+          awayPlayer,
+          fixture: chosenFixture,
+          normalizedHomeScore,
+          normalizedAwayScore,
+          penaltyWinner,
+          penaltyHomeScore,
+          penaltyAwayScore,
+        };
+      }
+    }
+  }
+
   if (!homePlayer || !awayPlayer) {
     return {
       status: 'players_not_matched',
