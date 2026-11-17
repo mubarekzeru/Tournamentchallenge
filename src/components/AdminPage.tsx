@@ -59,7 +59,6 @@ import {
 } from '../utils/groupStage';
 import { AdminMediaExporter } from './AdminMediaExporter';
 import { TournamentStatsSection } from './TournamentStatsSection';
-import { TelegramBotPanel } from './TelegramBotPanel';
 import { getPlayerRegistrationTimestamp } from '../utils/playerDate';
 import { CountryMatchClockBanner } from './CountryMatchClockBanner';
 import {
@@ -435,49 +434,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
     penaltyAwayScore?: number;
     stage?: string;
   } | null>(null);
-  const [postingTelegramKey, setPostingTelegramKey] = useState<string | null>(null);
-
-  const handleManualPostMatchToTelegram = async (
-    payload: {
-      matchday: number;
-      homeUser: string;
-      awayUser: string;
-      homeScore: number;
-      awayScore: number;
-      isPostponed?: boolean;
-      postponedReason?: string;
-      rescheduledMatchday?: number;
-      penaltyWinner?: string;
-      penaltyHomeScore?: number;
-      penaltyAwayScore?: number;
-      stage?: string;
-    },
-    key: string
-  ) => {
-    setPostingTelegramKey(key);
-    try {
-      const res = await fetch('/api/telegram/post-match-result', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json = await res.json();
-      if (json.success) {
-        onToast?.(
-          payload.isPostponed
-            ? `Postponed match notice posted to Telegram group (MD ${payload.matchday})!`
-            : `Match result posted to Telegram group (MD ${payload.matchday})!`,
-          'success'
-        );
-      } else {
-        onToast?.(json.error || 'Could not post result to Telegram group.', 'error');
-      }
-    } catch {
-      onToast?.('Network error posting match result to Telegram.', 'error');
-    } finally {
-      setPostingTelegramKey(null);
-    }
-  };
 
   const [stageFilter, setStageFilter] = useState<'all' | 'group_A' | 'group_B' | 'knockout' | 'quarter' | 'semi' | 'final'>('all');
   const [showDiscussionReference, setShowDiscussionReference] = useState<boolean>(false);
@@ -3925,36 +3881,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 <span>🤝 Full-Time Draw · 1 PT Each</span>
                               </span>
                             )}
-
-                            <button
-                              type="button"
-                              disabled={postingTelegramKey === `cur-${currentResult.id}`}
-                              onClick={() =>
-                                handleManualPostMatchToTelegram(
-                                  {
-                                    matchday: currentResult.matchday,
-                                    homeUser: currentResult.home_user,
-                                    awayUser: currentResult.away_user,
-                                    homeScore: currentResult.home_score,
-                                    awayScore: currentResult.away_score,
-                                    penaltyWinner: currentResult.penaltyWinner,
-                                    penaltyHomeScore: currentResult.penaltyHomeScore,
-                                    penaltyAwayScore: currentResult.penaltyAwayScore,
-                                    stage: currentResult.stage,
-                                  },
-                                  `cur-${currentResult.id}`
-                                )
-                              }
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[#3ce7ff]/60 bg-[#071360] hover:bg-[#3ce7ff] hover:text-[#050842] px-3 py-1 text-xs font-bold text-[#3ce7ff] transition-colors disabled:opacity-50 cursor-pointer"
-                              title="Manually post this match score to your Telegram group"
-                            >
-                              <Send className="h-3 w-3" />
-                              <span>
-                                {postingTelegramKey === `cur-${currentResult.id}`
-                                  ? 'Posting...'
-                                  : 'Post to Telegram'}
-                              </span>
-                            </button>
                           </div>
                         </div>
 
@@ -4642,37 +4568,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        disabled={postingTelegramKey === 'last-saved'}
-                        onClick={() =>
-                          handleManualPostMatchToTelegram(
-                            {
-                              matchday: lastSavedMatch.matchday,
-                              homeUser: lastSavedMatch.homeUser,
-                              awayUser: lastSavedMatch.awayUser,
-                              homeScore: lastSavedMatch.homeScore,
-                              awayScore: lastSavedMatch.awayScore,
-                              isPostponed: lastSavedMatch.isPostponed,
-                              postponedReason: lastSavedMatch.postponedReason,
-                              rescheduledMatchday: lastSavedMatch.rescheduledMatchday,
-                              penaltyWinner: lastSavedMatch.penaltyWinner,
-                              penaltyHomeScore: lastSavedMatch.penaltyHomeScore,
-                              penaltyAwayScore: lastSavedMatch.penaltyAwayScore,
-                              stage: lastSavedMatch.stage,
-                            },
-                            'last-saved'
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#3ce7ff] hover:bg-[#6ef0ff] text-[#050842] px-3 py-1.5 text-[11px] font-black uppercase tracking-wider transition-colors disabled:opacity-50 cursor-pointer"
-                      >
-                        <Send className="h-3 w-3 stroke-[2.5]" />
-                        <span>
-                          {postingTelegramKey === 'last-saved'
-                            ? 'Posting...'
-                            : 'Post Result to Telegram'}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
                         onClick={() =>
                           handleCopy(
                             lastSavedMatch.isPostponed
@@ -5063,36 +4958,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                                 )}
                               </div>
 
-                              {/* Action Controls: Post to Telegram, Edit & Delete */}
+                              {/* Action Controls: Edit & Delete */}
                               <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  disabled={postingTelegramKey === `part-${r.id}`}
-                                  onClick={() =>
-                                    handleManualPostMatchToTelegram(
-                                      {
-                                        matchday: r.matchday,
-                                        homeUser: r.home_user,
-                                        awayUser: r.away_user,
-                                        homeScore: r.home_score,
-                                        awayScore: r.away_score,
-                                        penaltyWinner: r.penaltyWinner,
-                                        penaltyHomeScore: r.penaltyHomeScore,
-                                        penaltyAwayScore: r.penaltyAwayScore,
-                                        stage: r.stage,
-                                      },
-                                      `part-${r.id}`
-                                    )
-                                  }
-                                  className="flex items-center gap-1 rounded-lg border border-[#3ce7ff]/50 bg-[#071360] px-2 py-1 text-[10px] font-extrabold text-[#3ce7ff] hover:bg-[#3ce7ff] hover:text-[#050842] transition-colors disabled:opacity-50 cursor-pointer"
-                                  title="Manually post this match score to Telegram group"
-                                >
-                                  <Send className="h-3 w-3" />
-                                  <span className="hidden sm:inline">
-                                    {postingTelegramKey === `part-${r.id}` ? '...' : 'Post'}
-                                  </span>
-                                </button>
-
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -5147,14 +5014,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({
               fixtures={fixtures}
               results={results}
               tournamentFormat={tournamentFormat}
-              onToast={onToast}
-            />
-
-            {/* Suite Section: Telegram Bot Screenshot Auto-Referee & Matchday Auto-Poster */}
-            <TelegramBotPanel
-              players={players}
-              fixtures={fixtures}
-              results={results}
               onToast={onToast}
             />
 

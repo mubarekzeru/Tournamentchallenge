@@ -1,5 +1,5 @@
 import React from 'react';
-import { Users, Trophy, PlayCircle, Sparkles, Clock } from 'lucide-react';
+import { Users, Trophy, PlayCircle, Clock } from 'lucide-react';
 import { Player, MatchResult, TournamentFormat, Fixture, GroupStageConfig, MatchClockConfig } from '../types/tournament';
 import { CountryMatchClockBanner } from './CountryMatchClockBanner';
 import { getDefaultClockConfig } from '../utils/countryClock';
@@ -20,28 +20,22 @@ interface HeroProps {
   onToggleShowCountdown?: () => void;
   onScrollToFixtures: () => void;
   onScrollToTable: () => void;
-  onOpenAIScout?: () => void;
   onSelectPlayer?: (player: Player) => void;
 }
 
 export const Hero: React.FC<HeroProps> = ({
   players,
   results,
-  fixtures = [],
   totalMatches = 42,
   totalMatchdays = 14,
   tournamentFormat = 'league_double',
-  config,
   showCountdown = true,
   countdownTargetDate,
   matchClockConfig,
   isAdmin = false,
   onNavigateToAdminClock,
-  onToggleShowCountdown,
   onScrollToFixtures,
   onScrollToTable,
-  onOpenAIScout,
-  onSelectPlayer,
 }) => {
   const effectiveClockConfig: MatchClockConfig = matchClockConfig || {
     ...getDefaultClockConfig(),
@@ -107,18 +101,6 @@ export const Hero: React.FC<HeroProps> = ({
             <Trophy className="h-3.5 w-3.5 text-[#eaff28]" />
             <span>{totalMatchdays} MATCHDAYS</span>
           </button>
-
-          {onOpenAIScout && (
-            <button
-              type="button"
-              onClick={onOpenAIScout}
-              className="flex items-center gap-1.5 rounded-full border border-[#eaff28]/60 bg-[#eaff28]/15 px-3 py-1 text-xs font-bold text-[#eaff28] shadow-[0_0_15px_rgba(234,255,40,0.2)] transition-transform hover:scale-105 cursor-pointer font-efootball-stencil"
-              title="Open AI Tactics Scout with Live Google Search"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>AI SCOUT</span>
-            </button>
-          )}
         </div>
 
         {/* Live Country Clock, Match Starting Date & Ending Due Date Countdown Banner */}
@@ -183,4 +165,3 @@ export const Hero: React.FC<HeroProps> = ({
     </section>
   );
 };
-

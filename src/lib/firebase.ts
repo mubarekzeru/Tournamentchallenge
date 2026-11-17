@@ -1,5 +1,12 @@
 import { initializeApp, getApps } from 'firebase/app';
-import { getFirestore, doc, getDocFromServer, setDoc, getDoc } from 'firebase/firestore';
+import {
+  initializeFirestore,
+  getFirestore,
+  doc,
+  getDocFromServer,
+  setDoc,
+  getDoc,
+} from 'firebase/firestore';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -11,7 +18,23 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId || '(default)');
+
+function createFirestoreInstance() {
+  const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+  try {
+    return initializeFirestore(
+      app,
+      {
+        experimentalForceLongPolling: true,
+      },
+      databaseId
+    );
+  } catch {
+    return getFirestore(app, databaseId);
+  }
+}
+
+export const db = createFirestoreInstance();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
@@ -81,7 +104,7 @@ export function handleFirestoreError(
 
 export async function validateFirestoreConnection() {
   try {
-    await getDocFromServer(doc(db, 'tournament', 'ping'));
+    await getDocFromServer(doc(db, 'tournament', 'live'));
   } catch (error) {
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firestore offline notice:', error.message);

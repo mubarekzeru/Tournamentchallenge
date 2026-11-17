@@ -1,5 +1,4 @@
 import React, { useRef, useEffect } from 'react';
-import { Sparkles, User } from 'lucide-react';
 import { AppUserProfile } from '../lib/firebase';
 import { TournamentFormat } from '../types/tournament';
 
@@ -14,7 +13,6 @@ interface NavbarProps {
   currentUser: AppUserProfile | null;
   tournamentFormat?: TournamentFormat;
   onNavigateSection: (section: SectionId) => void;
-  onOpenAIScout: () => void;
   onOpenAuthModal: () => void;
 }
 
@@ -23,7 +21,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   currentUser,
   tournamentFormat = 'league_double',
   onNavigateSection,
-  onOpenAIScout,
   onOpenAuthModal,
 }) => {
   const isPureKnockout =
@@ -98,21 +95,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </button>
 
-          {/* Action buttons: AI Tactics Scout & Firebase User Profile */}
+          {/* Action button: Firebase User Profile */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* AI Scout Button */}
-            <button
-              type="button"
-              onClick={onOpenAIScout}
-              className="flex items-center gap-1 sm:gap-1.5 rounded-full border border-[#eaff28]/60 bg-[#eaff28]/10 px-2 sm:px-3 py-1 text-xs font-bold text-[#eaff28] shadow-[0_0_12px_rgba(234,255,40,0.2)] transition-all hover:bg-[#eaff28] hover:text-[#050842]"
-              title="Open AI Tactics Scout with Live Google Search"
-            >
-              <Sparkles className="h-3.5 w-3.5 shrink-0" />
-              <span className="font-sports text-[11px] uppercase tracking-wider">
-                Scout
-              </span>
-            </button>
-
             {/* Google Sign-in / User Profile Button with eFootball Account Logo */}
             <button
               type="button"
@@ -171,4 +155,3 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
-

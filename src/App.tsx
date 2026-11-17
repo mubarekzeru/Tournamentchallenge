@@ -46,10 +46,11 @@ import {
   saveTournamentDataToFirestore,
   pushSnapshotToFirestoreOnly,
   getTournamentDataOnce,
+  STORAGE_KEY_UPDATED_AT,
+  STORAGE_KEY_PENDING_CLOUD_SYNC,
 } from './services/tournamentSync';
 import { auth, getUserProfile, AppUserProfile } from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { AIScoutModal } from './components/AIScoutModal';
 import { UserProfileModal } from './components/UserProfileModal';
 
 const STORAGE_KEY_PLAYERS = 'efootball_tournament_players_v3';
@@ -59,6 +60,8 @@ const STORAGE_KEY_FORMAT = 'efootball_tournament_format_v3';
 const STORAGE_KEY_GROUP_CONFIG = 'efootball_group_config_v3';
 const STORAGE_KEY_MATCH_CLOCK = 'efootball_match_clock_config_v1';
 const STORAGE_KEY_REGISTRATION_ENDED = 'efootball_registration_ended_v1';
+const STORAGE_KEY_DELETED_IDS = 'efootball_deleted_result_ids_v1';
+const STORAGE_KEY_RESET_AT = 'efootball_results_reset_at_v1';
 
 export default function App() {
   // Active navigation section: tracks current section on page
@@ -159,9 +162,8 @@ export default function App() {
   } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Google Firebase Auth user profile and AI Scout states
+  // Google Firebase Auth user profile state
   const [currentUser, setCurrentUser] = useState<AppUserProfile | null>(null);
-  const [isAIScoutOpen, setIsAIScoutOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   // Listen to Firebase Auth state and load user profile from Firestore
@@ -222,8 +224,18 @@ export default function App() {
       formatToSync?: TournamentFormat,
       configToSync?: GroupStageConfig,
       clockConfigToSync?: MatchClockConfig,
-      isRegistrationEndedToSync?: boolean
+      isRegistrationEndedToSync?: boolean,
+      mutationTimestampMs?: number
     ) => {
+      const updatedAtIso = mutationTimestampMs
+        ? new Date(mutationTimestampMs).toISOString()
+        : new Date().toISOString();
+      const deletedIdsArr = Array.from(deletedResultIdsRef.current);
+      const resetAtIso =
+        lastResultsResetAtRef.current > 0
+          ? new Date(lastResultsResetAtRef.current).toISOString()
+          : undefined;
+
       const res = await saveTournamentDataToFirestore({
         players: playersToSync,
         results: resultsToSync,
@@ -233,21 +245,40 @@ export default function App() {
         clockConfig: clockConfigToSync !== undefined ? clockConfigToSync : matchClockConfig,
         isRegistrationEnded:
           isRegistrationEndedToSync !== undefined ? isRegistrationEndedToSync : isRegistrationEnded,
+        deletedResultIds: deletedIdsArr,
+        resultsResetAt: resetAtIso,
+        updatedAt: updatedAtIso,
       });
-      if (!res.firestoreOk && res.reason === 'auth_required' && !authWarningShownRef.current) {
-        authWarningShownRef.current = true;
-        const id = `${Date.now()}-${Math.random()}`;
-        setToasts((prev) => [
-          ...prev,
-          {
-            id,
-            text: 'Saved on server/device. Click Sign In with Google (top right) to publish live to Firebase for everyone!',
-            type: 'info',
-          },
-        ]);
-        setTimeout(() => {
-          setToasts((prev) => prev.filter((t) => t.id !== id));
-        }, 5000);
+
+      if (!res.firestoreOk) {
+        if (res.reason === 'auth_required' && !authWarningShownRef.current) {
+          authWarningShownRef.current = true;
+          const id = `${Date.now()}-${Math.random()}`;
+          setToasts((prev) => [
+            ...prev,
+            {
+              id,
+              text: 'Saved on this device & server. Click Sign In with Google (top right) to publish live to Firebase across all devices.',
+              type: 'info',
+            },
+          ]);
+          setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+          }, 5000);
+        } else if (res.reason === 'payload_too_large' || res.reason === 'permission_denied' || res.reason === 'error') {
+          const id = `${Date.now()}-${Math.random()}`;
+          setToasts((prev) => [
+            ...prev,
+            {
+              id,
+              text: res.errorMessage || 'Saved locally, but Firebase cloud sync failed. Check your connection or Google Sign-In.',
+              type: 'error',
+            },
+          ]);
+          setTimeout(() => {
+            setToasts((prev) => prev.filter((t) => t.id !== id));
+          }, 5500);
+        }
       }
       return res;
     },
@@ -260,9 +291,52 @@ export default function App() {
   const latestServerPayloadRef = useRef<any>(null);
   const lastBridgedServerTimeRef = useRef<number>(0);
   const isBridgingToFirestoreRef = useRef<boolean>(false);
-  const lastManualMutationRef = useRef<number>(0);
-  const deletedResultIdsRef = useRef<Set<string>>(new Set());
-  const lastResultsResetAtRef = useRef<number>(0);
+  const lastManualMutationRef = useRef<number>((() => {
+    try {
+      const savedTs = localStorage.getItem(STORAGE_KEY_UPDATED_AT);
+      const parsed = savedTs ? Date.parse(savedTs) : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  })());
+  const deletedResultIdsRef = useRef<Set<string>>((() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_DELETED_IDS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === 'string'));
+      }
+    } catch {}
+    return new Set<string>();
+  })());
+  const lastResultsResetAtRef = useRef<number>((() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_RESET_AT);
+      const parsed = saved ? Date.parse(saved) : 0;
+      return Number.isFinite(parsed) ? parsed : 0;
+    } catch {
+      return 0;
+    }
+  })());
+
+  const persistLocalMutationMeta = useCallback((tsMs: number) => {
+    lastManualMutationRef.current = tsMs;
+    try {
+      localStorage.setItem(STORAGE_KEY_UPDATED_AT, new Date(tsMs).toISOString());
+      localStorage.setItem(STORAGE_KEY_PENDING_CLOUD_SYNC, 'true');
+      localStorage.setItem(
+        STORAGE_KEY_DELETED_IDS,
+        JSON.stringify(Array.from(deletedResultIdsRef.current).slice(-100))
+      );
+      if (lastResultsResetAtRef.current > 0) {
+        localStorage.setItem(
+          STORAGE_KEY_RESET_AT,
+          new Date(lastResultsResetAtRef.current).toISOString()
+        );
+      }
+    } catch {}
+  }, []);
 
   const getFixturePairKeyClient = useCallback((r: MatchResult): string => {
     const pair = [
@@ -335,27 +409,92 @@ export default function App() {
     [getFixturePairKeyClient]
   );
 
+  const buildLocalSnapshotPayload = useCallback(() => {
+    try {
+      const rawPlayers = localStorage.getItem(STORAGE_KEY_PLAYERS);
+      const rawResults = localStorage.getItem(STORAGE_KEY_RESULTS);
+      const rawUpdatedAt = localStorage.getItem(STORAGE_KEY_UPDATED_AT);
+      const parsedPlayers = rawPlayers ? JSON.parse(rawPlayers) : basePlayers;
+      const parsedResults = rawResults ? JSON.parse(rawResults) : results;
+      return {
+        players: Array.isArray(parsedPlayers) ? parsedPlayers : basePlayers,
+        results: Array.isArray(parsedResults) ? parsedResults : results,
+        adminPasscode,
+        tournamentFormat,
+        groupStageConfig,
+        clockConfig: matchClockConfig,
+        isRegistrationEnded,
+        deletedResultIds: Array.from(deletedResultIdsRef.current),
+        ...(lastResultsResetAtRef.current > 0
+          ? { resultsResetAt: new Date(lastResultsResetAtRef.current).toISOString() }
+          : {}),
+        updatedAt: rawUpdatedAt || new Date().toISOString(),
+      };
+    } catch {
+      return {
+        players: basePlayers,
+        results,
+        adminPasscode,
+        tournamentFormat,
+        groupStageConfig,
+        clockConfig: matchClockConfig,
+        isRegistrationEnded,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+  }, [
+    basePlayers,
+    results,
+    adminPasscode,
+    tournamentFormat,
+    groupStageConfig,
+    matchClockConfig,
+    isRegistrationEnded,
+  ]);
+
   const tryBridgeServerToFirestore = useCallback(async () => {
+    if (!auth.currentUser || isBridgingToFirestoreRef.current) return;
+
     const serverData = latestServerPayloadRef.current;
-    if (!auth.currentUser || !serverData || isBridgingToFirestoreRef.current) return;
-    const serverTime = serverData.updatedAt ? Date.parse(serverData.updatedAt) : 0;
+    const serverTime = serverData?.updatedAt ? Date.parse(serverData.updatedAt) || 0 : 0;
+    const localTime = lastManualMutationRef.current;
+    let hasPendingLocalSync = false;
+    try {
+      hasPendingLocalSync = localStorage.getItem(STORAGE_KEY_PENDING_CLOUD_SYNC) === 'true';
+    } catch {}
+
+    // Pick whichever source (local device vs Express server) is newer than Firestore
+    const candidateSource =
+      (hasPendingLocalSync || localTime >= serverTime) && localTime > 0
+        ? buildLocalSnapshotPayload()
+        : serverData;
+    const candidateTime = candidateSource?.updatedAt
+      ? Date.parse(candidateSource.updatedAt) || 0
+      : 0;
+
     if (
-      serverTime > 0 &&
-      serverTime > latestFirestoreTimestampRef.current &&
-      serverTime > lastBridgedServerTimeRef.current &&
-      serverTime >= lastManualMutationRef.current
+      candidateSource &&
+      Array.isArray(candidateSource.players) &&
+      candidateTime > 0 &&
+      candidateTime > latestFirestoreTimestampRef.current &&
+      candidateTime > lastBridgedServerTimeRef.current
     ) {
       isBridgingToFirestoreRef.current = true;
       try {
-        // Re-check latest Firestore state before bridging so manual matches from other devices are NEVER wiped
         const remoteDoc = await getTournamentDataOnce();
-        if (Array.isArray(serverData.deletedResultIds)) {
-          serverData.deletedResultIds.forEach((id: string) =>
+        const remoteTime = remoteDoc?.updatedAt ? Date.parse(remoteDoc.updatedAt) || 0 : 0;
+        if (remoteTime >= candidateTime) {
+          latestFirestoreTimestampRef.current = remoteTime;
+          return;
+        }
+
+        if (Array.isArray(candidateSource.deletedResultIds)) {
+          candidateSource.deletedResultIds.forEach((id: string) =>
             deletedResultIdsRef.current.add(id)
           );
         }
-        if (serverData.resultsResetAt) {
-          const srvResetMs = Date.parse(serverData.resultsResetAt) || 0;
+        if (candidateSource.resultsResetAt) {
+          const srvResetMs = Date.parse(candidateSource.resultsResetAt) || 0;
           if (srvResetMs > lastResultsResetAtRef.current) {
             lastResultsResetAtRef.current = srvResetMs;
           }
@@ -363,45 +502,60 @@ export default function App() {
 
         const mergedResults = remoteDoc?.results
           ? mergeManualAndIncomingResults(
-              remoteDoc.results,
-              Array.isArray(serverData.results) ? serverData.results : []
+              candidateSource.results || [],
+              remoteDoc.results
             )
-          : Array.isArray(serverData.results)
-          ? serverData.results
+          : Array.isArray(candidateSource.results)
+          ? candidateSource.results
           : [];
 
         const payloadToPush = {
-          ...serverData,
+          ...candidateSource,
           results: mergedResults,
         };
 
         const ok = await pushSnapshotToFirestoreOnly(payloadToPush);
         if (ok) {
-          lastBridgedServerTimeRef.current = serverTime;
-          latestFirestoreTimestampRef.current = serverTime;
+          lastBridgedServerTimeRef.current = candidateTime;
+          latestFirestoreTimestampRef.current = candidateTime;
         }
       } finally {
         isBridgingToFirestoreRef.current = false;
       }
     }
-  }, [mergeManualAndIncomingResults]);
+  }, [buildLocalSnapshotPayload, mergeManualAndIncomingResults]);
 
-  // Real-time synchronization via Firebase Firestore + Server API (including Telegram Bot match updates)
+  // Real-time synchronization via Firebase Firestore + Server API
   useEffect(() => {
     let isMounted = true;
 
     const applyRemoteState = (data: any, source: 'firestore' | 'server') => {
       if (!isMounted || !data) return;
-      const incomingTime = data.updatedAt ? Date.parse(data.updatedAt) : 0;
+      const incomingTime = data.updatedAt ? Date.parse(data.updatedAt) || 0 : 0;
 
-      // Never allow stale server or cached updates to overwrite recent manual Admin edits
-      if (incomingTime > 0 && incomingTime < lastManualMutationRef.current) {
-        return;
+      if (source === 'firestore') {
+        hasFirestoreDataRef.current = true;
+        if (incomingTime > latestFirestoreTimestampRef.current) {
+          latestFirestoreTimestampRef.current = incomingTime;
+        }
       }
 
-      if (source === 'firestore' && incomingTime > latestFirestoreTimestampRef.current) {
-        latestFirestoreTimestampRef.current = incomingTime;
+      // Never allow stale Firestore/server snapshots older than this browser's last saved edit
+      // (even after a full page refresh) to erase newly recorded match results!
+      let hasPendingLocalSync = false;
+      try {
+        hasPendingLocalSync = localStorage.getItem(STORAGE_KEY_PENDING_CLOUD_SYNC) === 'true';
+      } catch {}
+
+      if (lastManualMutationRef.current > 0) {
+        if (incomingTime === 0 || incomingTime < lastManualMutationRef.current) {
+          return;
+        }
+        if (hasPendingLocalSync && incomingTime <= lastManualMutationRef.current) {
+          return;
+        }
       }
+
       if (incomingTime > 0 && incomingTime < latestRemoteTimestampRef.current) {
         return;
       }
@@ -411,42 +565,21 @@ export default function App() {
 
       if (Array.isArray(data.deletedResultIds)) {
         data.deletedResultIds.forEach((id: string) => deletedResultIdsRef.current.add(id));
+        try {
+          localStorage.setItem(
+            STORAGE_KEY_DELETED_IDS,
+            JSON.stringify(Array.from(deletedResultIdsRef.current).slice(-100))
+          );
+        } catch {}
       }
       if (data.resultsResetAt) {
         const resetMs = Date.parse(data.resultsResetAt) || 0;
         if (resetMs > lastResultsResetAtRef.current) {
           lastResultsResetAtRef.current = resetMs;
+          try {
+            localStorage.setItem(STORAGE_KEY_RESET_AT, data.resultsResetAt);
+          } catch {}
         }
-      }
-
-      if (source === 'firestore') {
-        hasFirestoreDataRef.current = true;
-      }
-
-      // If Firestore is already active and this payload came from /api/tournament polling,
-      // ONLY merge brand-new bot-verified results without replacing manual website results/players!
-      if (source === 'server' && hasFirestoreDataRef.current) {
-        if (Array.isArray(data.results) && data.results.length > 0) {
-          const cutoffMs = Math.max(
-            latestFirestoreTimestampRef.current,
-            lastManualMutationRef.current,
-            lastResultsResetAtRef.current
-          );
-          setResults((prev) => {
-            const merged = mergeManualAndIncomingResults(prev, data.results, {
-              onlyNewBotResults: true,
-              botCutoffMs: cutoffMs,
-            });
-            if (merged.length !== prev.length) {
-              try {
-                localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(merged));
-              } catch {}
-              return merged;
-            }
-            return prev;
-          });
-        }
-        return;
       }
 
       if (data.players && Array.isArray(data.players)) {
@@ -508,6 +641,14 @@ export default function App() {
           localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(data.isRegistrationEnded));
         } catch {}
       }
+      if (data.updatedAt) {
+        try {
+          localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
+          if (source === 'firestore') {
+            localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
+          }
+        } catch {}
+      }
     };
 
     // 1. Subscribe to live Firestore updates across all devices
@@ -515,15 +656,18 @@ export default function App() {
       applyRemoteState(data, 'firestore');
     });
 
-    // 2. Check /api/tournament periodically so Telegram Bot results update browsers safely
+    // 2. Check /api/tournament when running with Express backend
     const fetchServerBackup = () => {
       fetch('/api/tournament')
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error('Server backup unavailable');
+          return res.json();
+        })
         .then((json) => {
           if (!isMounted || !json.success || !json.data) return;
           latestServerPayloadRef.current = json.data;
-          const serverTime = json.data.updatedAt ? Date.parse(json.data.updatedAt) : 0;
-          if (serverTime <= lastManualMutationRef.current) return;
+          const serverTime = json.data.updatedAt ? Date.parse(json.data.updatedAt) || 0 : 0;
+          if (serverTime < lastManualMutationRef.current) return;
           if (!hasFirestoreDataRef.current || serverTime > latestRemoteTimestampRef.current) {
             applyRemoteState(json.data, 'server');
           }
@@ -535,16 +679,16 @@ export default function App() {
     };
 
     fetchServerBackup();
-    const serverPoll = setInterval(fetchServerBackup, 5_000);
+    const serverPoll = setInterval(fetchServerBackup, 10_000);
 
     return () => {
       isMounted = false;
       unsubscribe();
       clearInterval(serverPoll);
     };
-  }, [tryBridgeServerToFirestore, mergeManualAndIncomingResults]);
+  }, [tryBridgeServerToFirestore]);
 
-  // As soon as a Google user signs in, push any newer server/Telegram bot snapshot to Firestore
+  // As soon as a Google user signs in, push any newer local/server snapshot to Firestore
   useEffect(() => {
     if (currentUser?.uid) {
       authWarningShownRef.current = false;
@@ -587,21 +731,23 @@ export default function App() {
   // Handler to generate matches automatically for chosen format
   const handleGenerateMatches = useCallback(
     (newFormat: TournamentFormat) => {
-      lastManualMutationRef.current = Date.now();
+      const now = Date.now();
+      persistLocalMutationMeta(now);
       setTournamentFormat(newFormat);
       try {
         localStorage.setItem(STORAGE_KEY_FORMAT, newFormat);
       } catch (e) {}
 
-      saveTournamentDataToFirestore({
-        players: basePlayers,
-        results: results,
-        adminPasscode: adminPasscode,
-        tournamentFormat: newFormat,
-        groupStageConfig: groupStageConfig,
-        clockConfig: matchClockConfig,
-        isRegistrationEnded: isRegistrationEnded,
-      });
+      syncToServer(
+        basePlayers,
+        results,
+        adminPasscode,
+        newFormat,
+        groupStageConfig,
+        matchClockConfig,
+        isRegistrationEnded,
+        now
+      );
 
       const formatName =
         newFormat === 'knockout' || newFormat === 'group_knockout' || newFormat === 'group_stage' || newFormat === 'knockout_cup'
@@ -612,28 +758,30 @@ export default function App() {
 
       addToast(`⚡ Play style switched to ${formatName}!`, 'success');
     },
-    [basePlayers, results, adminPasscode, groupStageConfig, matchClockConfig, isRegistrationEnded, addToast]
+    [basePlayers, results, adminPasscode, groupStageConfig, matchClockConfig, isRegistrationEnded, addToast, persistLocalMutationMeta, syncToServer]
   );
 
   const handleUpdateGroupConfig = useCallback(
     (newConfig: GroupStageConfig) => {
-      lastManualMutationRef.current = Date.now();
+      const now = Date.now();
+      persistLocalMutationMeta(now);
       setGroupStageConfig(newConfig);
       try {
         localStorage.setItem(STORAGE_KEY_GROUP_CONFIG, JSON.stringify(newConfig));
       } catch (e) {}
-      saveTournamentDataToFirestore({
-        players: basePlayers,
-        results: results,
-        adminPasscode: adminPasscode,
-        tournamentFormat: tournamentFormat,
-        groupStageConfig: newConfig,
-        clockConfig: matchClockConfig,
-        isRegistrationEnded: isRegistrationEnded,
-      });
+      syncToServer(
+        basePlayers,
+        results,
+        adminPasscode,
+        tournamentFormat,
+        newConfig,
+        matchClockConfig,
+        isRegistrationEnded,
+        now
+      );
       addToast('Group stage settings updated!', 'success');
     },
-    [basePlayers, results, adminPasscode, tournamentFormat, matchClockConfig, isRegistrationEnded, addToast]
+    [basePlayers, results, adminPasscode, tournamentFormat, matchClockConfig, isRegistrationEnded, addToast, persistLocalMutationMeta, syncToServer]
   );
 
   const totalMatchdays = useMemo(() => {
@@ -812,21 +960,23 @@ export default function App() {
         return;
       }
 
-      lastManualMutationRef.current = Date.now();
+      const now = Date.now();
+      persistLocalMutationMeta(now);
       setIsRegistrationEnded(nextVal);
       try {
         localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, String(nextVal));
       } catch (e) {}
 
-      saveTournamentDataToFirestore({
-        players: basePlayers,
+      syncToServer(
+        basePlayers,
         results,
         adminPasscode,
         tournamentFormat,
         groupStageConfig,
-        clockConfig: matchClockConfig,
-        isRegistrationEnded: nextVal,
-      });
+        matchClockConfig,
+        nextVal,
+        now
+      );
 
       addToast(
         nextVal
@@ -835,7 +985,7 @@ export default function App() {
         'info'
       );
     },
-    [isRegistrationEnded, basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, addToast]
+    [isRegistrationEnded, basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, matchClockConfig, addToast, persistLocalMutationMeta, syncToServer]
   );
 
   // Admin authentication handlers
@@ -957,7 +1107,8 @@ export default function App() {
       (r) => activeUsers.has(r.home_user) && activeUsers.has(r.away_user)
     );
 
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     setBasePlayers(updatedPlayers);
     setResults(updatedResults);
 
@@ -967,7 +1118,7 @@ export default function App() {
     } catch (e) {}
 
     // Synchronize to Firestore with clean overwrite so deleted/old member data is purged from Firebase
-    syncToServer(updatedPlayers, updatedResults);
+    syncToServer(updatedPlayers, updatedResults, undefined, undefined, undefined, undefined, undefined, now);
     setIsPlayerEditModalOpen(false);
     setPlayerToEdit(null);
   };
@@ -992,7 +1143,8 @@ export default function App() {
       );
     }
 
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     setBasePlayers(remaining);
     setResults(updatedResults);
     try {
@@ -1000,7 +1152,7 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(updatedResults));
     } catch (e) {}
 
-    syncToServer(remaining, updatedResults);
+    syncToServer(remaining, updatedResults, undefined, undefined, undefined, undefined, undefined, now);
     addToast(
       `Removed ${playerToDelete?.user || 'player'} and purged member data from Firebase.`,
       'info'
@@ -1012,8 +1164,9 @@ export default function App() {
   // Feature: Delete All Players in administration to save time and easily start fresh
   const handleDeleteAllPlayers = () => {
     const previousCount = basePlayers.length;
-    lastManualMutationRef.current = Date.now();
-    lastResultsResetAtRef.current = Date.now();
+    const now = Date.now();
+    lastResultsResetAtRef.current = now;
+    persistLocalMutationMeta(now);
     setBasePlayers([]);
     setResults([]);
     setSelectedPlayer(null);
@@ -1026,7 +1179,7 @@ export default function App() {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify([]));
     } catch (e) {}
 
-    syncToServer([], []);
+    syncToServer([], [], undefined, undefined, undefined, undefined, undefined, now);
     addToast(
       `Deleted all ${previousCount} players and cleared all tournament records! Matches will start soon.`,
       'info'
@@ -1044,13 +1197,14 @@ export default function App() {
     });
 
     const removedCount = initialCount - cleanedResults.length;
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     setResults(cleanedResults);
     try {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(cleanedResults));
     } catch (e) {}
 
-    syncToServer(basePlayers, cleanedResults);
+    syncToServer(basePlayers, cleanedResults, undefined, undefined, undefined, undefined, undefined, now);
     if (removedCount > 0) {
       addToast(
         `Purged ${removedCount} old member match record(s)! Firebase database space has been freed.`
@@ -1067,7 +1221,7 @@ export default function App() {
     resultData: Omit<MatchResult, 'id' | 'submitted_at'>,
     existingId?: string
   ) => {
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
     let updatedResults: MatchResult[];
     if (existingId) {
       deletedResultIdsRef.current.delete(existingId);
@@ -1076,7 +1230,7 @@ export default function App() {
           const updated: MatchResult = {
             ...r,
             ...resultData,
-            submitted_at: new Date().toISOString(),
+            submitted_at: new Date(now).toISOString(),
           };
           if (!resultData.isPostponed) {
             delete (updated as any).postponedReason;
@@ -1089,9 +1243,9 @@ export default function App() {
       addToast('Match result updated!');
     } else {
       const newResult: MatchResult = {
-        id: `res-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        id: `res-${now}-${Math.random().toString(36).substr(2, 4)}`,
         ...resultData,
-        submitted_at: new Date().toISOString(),
+        submitted_at: new Date(now).toISOString(),
       };
       if (!resultData.isPostponed) {
         delete (newResult as any).postponedReason;
@@ -1101,11 +1255,12 @@ export default function App() {
       addToast('Match result saved and published!');
     }
 
+    persistLocalMutationMeta(now);
     setResults(updatedResults);
     try {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(updatedResults));
     } catch (e) {}
-    syncToServer(basePlayers, updatedResults);
+    syncToServer(basePlayers, updatedResults, undefined, undefined, undefined, undefined, undefined, now);
   };
 
   const handleDeleteResult = (resultId: string) => {
@@ -1113,30 +1268,31 @@ export default function App() {
       setIsAdminModalOpen(true);
       return;
     }
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
     deletedResultIdsRef.current.add(resultId);
+    persistLocalMutationMeta(now);
     const updatedResults = results.filter((r) => r.id !== resultId);
     setResults(updatedResults);
     try {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(updatedResults));
     } catch (e) {}
-    syncToServer(basePlayers, updatedResults);
+    syncToServer(basePlayers, updatedResults, undefined, undefined, undefined, undefined, undefined, now);
     addToast('Match result deleted.', 'info');
   };
 
   const handleResetData = () => {
     if (window.confirm('Are you sure you want to reset all match results? This will re-open player registrations.')) {
       const now = Date.now();
-      lastManualMutationRef.current = now;
       lastResultsResetAtRef.current = now;
       results.forEach((r) => deletedResultIdsRef.current.add(r.id));
+      persistLocalMutationMeta(now);
       setResults([]);
       setIsRegistrationEnded(false);
       try {
         localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify([]));
         localStorage.setItem(STORAGE_KEY_REGISTRATION_ENDED, 'false');
       } catch (e) {}
-      syncToServer(basePlayers, [], undefined, undefined, undefined, undefined, false);
+      syncToServer(basePlayers, [], undefined, undefined, undefined, undefined, false, now);
       addToast('All match records reset! Registrations re-opened.');
     }
   };
@@ -1166,7 +1322,7 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
-        lastManualMutationRef.current = Date.now();
+        const now = Date.now();
         if (parsed.players && Array.isArray(parsed.players)) {
           setBasePlayers(parsed.players);
           try {
@@ -1176,14 +1332,24 @@ export default function App() {
         if (parsed.results && Array.isArray(parsed.results)) {
           deletedResultIdsRef.current.clear();
           lastResultsResetAtRef.current = 0;
+          try {
+            localStorage.removeItem(STORAGE_KEY_RESET_AT);
+          } catch {}
           setResults(parsed.results);
           try {
             localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(parsed.results));
           } catch (err) {}
         }
+        persistLocalMutationMeta(now);
         syncToServer(
           parsed.players && Array.isArray(parsed.players) ? parsed.players : basePlayers,
-          parsed.results && Array.isArray(parsed.results) ? parsed.results : results
+          parsed.results && Array.isArray(parsed.results) ? parsed.results : results,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          now
         );
         addToast('Tournament backup restored successfully!');
       } catch (err) {
@@ -1229,7 +1395,8 @@ export default function App() {
   });
 
   const handleToggleCountdown = (val?: boolean) => {
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     const nextVal = typeof val === 'boolean' ? val : !showCountdown;
     setShowCountdown(nextVal);
     const updatedClock = { ...matchClockConfig, enabled: nextVal };
@@ -1238,12 +1405,13 @@ export default function App() {
       localStorage.setItem('efootball_show_countdown', String(nextVal));
       localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(updatedClock));
     } catch {}
-    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock);
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock, undefined, now);
     addToast(nextVal ? 'Country clock & match countdown enabled on Hero!' : 'Country clock & match countdown hidden on Hero.');
   };
 
   const handleUpdateCountdownTarget = (dateStr: string) => {
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     setCountdownTargetDate(dateStr);
     const updatedClock = { ...matchClockConfig, startDate: dateStr };
     setMatchClockConfig(updatedClock);
@@ -1251,12 +1419,13 @@ export default function App() {
       localStorage.setItem('efootball_countdown_target_date', dateStr);
       localStorage.setItem(STORAGE_KEY_MATCH_CLOCK, JSON.stringify(updatedClock));
     } catch {}
-    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock);
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, updatedClock, undefined, now);
     addToast('Scheduled matchday kickoff updated!');
   };
 
   const handleUpdateMatchClockConfig = (newConfig: MatchClockConfig) => {
-    lastManualMutationRef.current = Date.now();
+    const now = Date.now();
+    persistLocalMutationMeta(now);
     setMatchClockConfig(newConfig);
     setShowCountdown(newConfig.enabled);
     setCountdownTargetDate(newConfig.startDate);
@@ -1265,17 +1434,7 @@ export default function App() {
       localStorage.setItem('efootball_show_countdown', String(newConfig.enabled));
       localStorage.setItem('efootball_countdown_target_date', newConfig.startDate);
     } catch {}
-    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, newConfig).then(
-      (res) => {
-        if (!res.firestoreOk && !authWarningShownRef.current) {
-          authWarningShownRef.current = true;
-          addToast(
-            'Clock updated locally. Click Sign In with Google (top right) to publish changes to Firebase across all phones.',
-            'info'
-          );
-        }
-      }
-    );
+    syncToServer(basePlayers, results, adminPasscode, tournamentFormat, groupStageConfig, newConfig, undefined, now);
     addToast('Country clock & match schedule updated!');
   };
 
@@ -1291,7 +1450,6 @@ export default function App() {
         currentUser={currentUser}
         tournamentFormat={tournamentFormat}
         onNavigateSection={handleNavigateSection}
-        onOpenAIScout={() => setIsAIScoutOpen(true)}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
@@ -1380,7 +1538,6 @@ export default function App() {
               onToggleShowCountdown={handleToggleCountdown}
               onScrollToFixtures={() => handleNavigateSection('fixtures')}
               onScrollToTable={() => handleNavigateSection('table')}
-              onOpenAIScout={() => setIsAIScoutOpen(true)}
               onSelectPlayer={(player) => setSelectedPlayer(player)}
             />
 
@@ -1532,14 +1689,6 @@ export default function App() {
         }}
         onSavePlayer={handleSavePlayer}
         onDeletePlayer={handleDeletePlayer}
-      />
-
-      {/* AI Intelligence & Tactics Scout Modal with Live Google Search */}
-      <AIScoutModal
-        isOpen={isAIScoutOpen}
-        players={calculatedPlayers}
-        results={results}
-        onClose={() => setIsAIScoutOpen(false)}
       />
 
       {/* Google Sign-In & Firestore User Profile Modal */}

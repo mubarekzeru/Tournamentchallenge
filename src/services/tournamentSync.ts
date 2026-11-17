@@ -3,6 +3,8 @@ import { auth, db, handleFirestoreError, OperationType, validateFirestoreConnect
 import { Player, MatchResult, TournamentFormat, GroupStageConfig, MatchClockConfig } from '../types/tournament';
 
 const TOURNAMENT_DOC_PATH = 'live';
+export const STORAGE_KEY_UPDATED_AT = 'efootball_tournament_updated_at_v1';
+export const STORAGE_KEY_PENDING_CLOUD_SYNC = 'efootball_pending_cloud_sync_v1';
 
 export interface TournamentPayload {
   players: Player[];
@@ -12,6 +14,8 @@ export interface TournamentPayload {
   groupStageConfig?: GroupStageConfig;
   clockConfig?: MatchClockConfig;
   isRegistrationEnded?: boolean;
+  deletedResultIds?: string[];
+  resultsResetAt?: string;
   updatedAt: string;
 }
 
@@ -77,7 +81,24 @@ export function sanitizeForFirestore<T>(data: T): T {
 export interface SaveSyncResult {
   firestoreOk: boolean;
   serverOk: boolean;
-  reason?: 'auth_required' | 'permission_denied' | 'error';
+  updatedAt: string;
+  reason?: 'auth_required' | 'permission_denied' | 'payload_too_large' | 'error';
+  errorMessage?: string;
+}
+
+function markPendingCloudSync(pending: boolean, updatedAt?: string) {
+  try {
+    if (updatedAt) {
+      localStorage.setItem(STORAGE_KEY_UPDATED_AT, updatedAt);
+    }
+    if (pending) {
+      localStorage.setItem(STORAGE_KEY_PENDING_CLOUD_SYNC, 'true');
+    } else {
+      localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
+    }
+  } catch {
+    // Ignore storage quota issues
+  }
 }
 
 // Persist updates to server API + Firestore (requires signed-in Google user per firestore.rules)
@@ -89,11 +110,15 @@ export async function saveTournamentDataToFirestore(payload: {
   groupStageConfig?: GroupStageConfig;
   clockConfig?: MatchClockConfig;
   isRegistrationEnded?: boolean;
+  deletedResultIds?: string[];
+  resultsResetAt?: string;
+  updatedAt?: string;
 }): Promise<SaveSyncResult> {
+  const updatedAtIso = payload.updatedAt || new Date().toISOString();
   const rawPayload: Record<string, any> = {
     players: payload.players,
     results: payload.results,
-    updatedAt: new Date().toISOString(),
+    updatedAt: updatedAtIso,
   };
   if (payload.adminPasscode !== undefined && payload.adminPasscode !== '') {
     rawPayload.adminPasscode = payload.adminPasscode;
@@ -110,10 +135,19 @@ export async function saveTournamentDataToFirestore(payload: {
   if (payload.isRegistrationEnded !== undefined) {
     rawPayload.isRegistrationEnded = payload.isRegistrationEnded;
   }
+  if (Array.isArray(payload.deletedResultIds) && payload.deletedResultIds.length > 0) {
+    rawPayload.deletedResultIds = payload.deletedResultIds;
+  }
+  if (payload.resultsResetAt) {
+    rawPayload.resultsResetAt = payload.resultsResetAt;
+  }
 
   const cleanPayload = sanitizeForFirestore(rawPayload);
 
-  // 1. Persist to Node server API for Telegram bot & fallback sync
+  // Immediately record local timestamp & pending flag so a page refresh never erases this save
+  markPendingCloudSync(true, updatedAtIso);
+
+  // 1. Persist to Node server API when available
   let serverOk = false;
   try {
     const apiRes = await fetch('/api/tournament', {
@@ -131,15 +165,33 @@ export async function saveTournamentDataToFirestore(payload: {
     return {
       firestoreOk: false,
       serverOk,
+      updatedAt: updatedAtIso,
       reason: 'auth_required',
     };
+  }
+
+  // Check Firestore 1MB document limit before calling setDoc
+  try {
+    const approxBytes = new Blob([JSON.stringify(cleanPayload)]).size;
+    if (approxBytes > 980_000) {
+      return {
+        firestoreOk: false,
+        serverOk,
+        updatedAt: updatedAtIso,
+        reason: 'payload_too_large',
+        errorMessage: `Tournament data (${Math.round(approxBytes / 1024)} KB) is near Firebase's 1 MB document limit. Reduce player photo sizes to sync to cloud.`,
+      };
+    }
+  } catch {
+    // Ignore size check if Blob unavailable
   }
 
   const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
   try {
     const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
     await setDoc(docRef, cleanPayload);
-    return { firestoreOk: true, serverOk };
+    markPendingCloudSync(false, updatedAtIso);
+    return { firestoreOk: true, serverOk, updatedAt: updatedAtIso };
   } catch (err: any) {
     const msg = String(err?.message || err);
     if (msg.toLowerCase().includes('permission')) {
@@ -148,26 +200,40 @@ export async function saveTournamentDataToFirestore(payload: {
       } catch {
         // Caught after structured diagnostic log
       }
-      return { firestoreOk: false, serverOk, reason: 'permission_denied' };
+      return {
+        firestoreOk: false,
+        serverOk,
+        updatedAt: updatedAtIso,
+        reason: 'permission_denied',
+        errorMessage: msg,
+      };
     }
     console.error('Error saving to Firestore:', err);
-    return { firestoreOk: false, serverOk, reason: 'error' };
+    return {
+      firestoreOk: false,
+      serverOk,
+      updatedAt: updatedAtIso,
+      reason: 'error',
+      errorMessage: msg,
+    };
   }
 }
 
-// Bridge a newer server/Telegram-bot snapshot directly into Firestore (without re-POSTing to /api/tournament)
+// Bridge a newer local or server snapshot directly into Firestore (without re-POSTing to /api/tournament)
 export async function pushSnapshotToFirestoreOnly(payload: Record<string, any>): Promise<boolean> {
   if (!auth.currentUser || !payload || !Array.isArray(payload.players)) {
     return false;
   }
+  const updatedAtIso = payload.updatedAt || new Date().toISOString();
   const cleanPayload = sanitizeForFirestore({
     ...payload,
-    updatedAt: payload.updatedAt || new Date().toISOString(),
+    updatedAt: updatedAtIso,
   });
   const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
   try {
     const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
     await setDoc(docRef, cleanPayload);
+    markPendingCloudSync(false, updatedAtIso);
     return true;
   } catch (err: any) {
     const msg = String(err?.message || err);
@@ -202,4 +268,3 @@ export function purgeOrphanedMatchScores(
     purgedCount: allResults.length - cleanedResults.length,
   };
 }
-
