@@ -48,8 +48,14 @@ import {
   getTournamentDataOnce,
   STORAGE_KEY_UPDATED_AT,
   STORAGE_KEY_PENDING_CLOUD_SYNC,
+  hasPendingCloudSyncStored,
 } from './services/tournamentSync';
-import { auth, getUserProfile, AppUserProfile } from './lib/firebase';
+import {
+  auth,
+  getUserProfile,
+  completeGoogleRedirectSignIn,
+  AppUserProfile,
+} from './lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { UserProfileModal } from './components/UserProfileModal';
 
@@ -162,12 +168,16 @@ export default function App() {
   } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Google Firebase Auth user profile state
+  // Google Firebase Auth user profile & cloud sync state
   const [currentUser, setCurrentUser] = useState<AppUserProfile | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [hasPendingCloudSync, setHasPendingCloudSync] = useState<boolean>(() =>
+    hasPendingCloudSyncStored()
+  );
 
   // Listen to Firebase Auth state and load user profile from Firestore
   useEffect(() => {
+    completeGoogleRedirectSignIn();
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
         const profile = await getUserProfile(fbUser.uid);
@@ -250,7 +260,10 @@ export default function App() {
         updatedAt: updatedAtIso,
       });
 
-      if (!res.firestoreOk) {
+      if (res.firestoreOk) {
+        setHasPendingCloudSync(false);
+      } else {
+        setHasPendingCloudSync(true);
         if (res.reason === 'auth_required' && !authWarningShownRef.current) {
           authWarningShownRef.current = true;
           const id = `${Date.now()}-${Math.random()}`;
@@ -258,13 +271,13 @@ export default function App() {
             ...prev,
             {
               id,
-              text: 'Saved on this device & server. Click Sign In with Google (top right) to publish live to Firebase across all devices.',
+              text: 'Saved on this device only! Sign in with Google (top right) so everyone opening your website link sees the results.',
               type: 'info',
             },
           ]);
           setTimeout(() => {
             setToasts((prev) => prev.filter((t) => t.id !== id));
-          }, 5000);
+          }, 6000);
         } else if (res.reason === 'payload_too_large' || res.reason === 'permission_denied' || res.reason === 'error') {
           const id = `${Date.now()}-${Math.random()}`;
           setToasts((prev) => [
@@ -518,6 +531,7 @@ export default function App() {
         if (ok) {
           lastBridgedServerTimeRef.current = candidateTime;
           latestFirestoreTimestampRef.current = candidateTime;
+          setHasPendingCloudSync(false);
         }
       } finally {
         isBridgingToFirestoreRef.current = false;
@@ -538,14 +552,25 @@ export default function App() {
         if (incomingTime > latestFirestoreTimestampRef.current) {
           latestFirestoreTimestampRef.current = incomingTime;
         }
+        // Detect if local device/server has results that have NOT yet been published to Firestore
+        const remoteResultsLen = Array.isArray(data.results) ? data.results.length : 0;
+        const serverResultsLen = Array.isArray(latestServerPayloadRef.current?.results)
+          ? latestServerPayloadRef.current.results.length
+          : 0;
+        const serverUpdatedMs = latestServerPayloadRef.current?.updatedAt
+          ? Date.parse(latestServerPayloadRef.current.updatedAt) || 0
+          : 0;
+        if (
+          (lastManualMutationRef.current > incomingTime && hasPendingCloudSyncStored()) ||
+          (serverUpdatedMs > incomingTime && serverResultsLen > remoteResultsLen)
+        ) {
+          setHasPendingCloudSync(true);
+        }
       }
 
       // Never allow stale Firestore/server snapshots older than this browser's last saved edit
       // (even after a full page refresh) to erase newly recorded match results!
-      let hasPendingLocalSync = false;
-      try {
-        hasPendingLocalSync = localStorage.getItem(STORAGE_KEY_PENDING_CLOUD_SYNC) === 'true';
-      } catch {}
+      const hasPendingLocalSync = hasPendingCloudSyncStored();
 
       if (lastManualMutationRef.current > 0) {
         if (incomingTime === 0 || incomingTime < lastManualMutationRef.current) {
@@ -646,6 +671,7 @@ export default function App() {
           localStorage.setItem(STORAGE_KEY_UPDATED_AT, data.updatedAt);
           if (source === 'firestore') {
             localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
+            setHasPendingCloudSync(false);
           }
         } catch {}
       }
@@ -1217,7 +1243,7 @@ export default function App() {
   };
 
   // Match Result recording handlers
-  const handleSaveResult = (
+  const handleSaveResult = async (
     resultData: Omit<MatchResult, 'id' | 'submitted_at'>,
     existingId?: string
   ) => {
@@ -1240,7 +1266,6 @@ export default function App() {
         }
         return r;
       });
-      addToast('Match result updated!');
     } else {
       const newResult: MatchResult = {
         id: `res-${now}-${Math.random().toString(36).substr(2, 4)}`,
@@ -1252,15 +1277,67 @@ export default function App() {
         delete (newResult as any).rescheduledMatchday;
       }
       updatedResults = [newResult, ...results];
-      addToast('Match result saved and published!');
     }
 
     persistLocalMutationMeta(now);
+    setHasPendingCloudSync(true);
     setResults(updatedResults);
     try {
       localStorage.setItem(STORAGE_KEY_RESULTS, JSON.stringify(updatedResults));
     } catch (e) {}
-    syncToServer(basePlayers, updatedResults, undefined, undefined, undefined, undefined, undefined, now);
+
+    const syncRes = await syncToServer(
+      basePlayers,
+      updatedResults,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      now
+    );
+
+    if (syncRes.firestoreOk) {
+      addToast(
+        existingId
+          ? 'Match result updated & published live to all visitors!'
+          : 'Match result saved & published live to all visitors!',
+        'success'
+      );
+    } else if (syncRes.reason === 'auth_required') {
+      addToast(
+        'Match result saved on this phone ONLY. Click "Sign In with Google" in Record Match Score so people opening the link can see it!',
+        'info'
+      );
+    }
+  };
+
+  const handlePublishCloudNow = async (): Promise<boolean> => {
+    if (!auth.currentUser) {
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    const now = Date.now();
+    const res = await syncToServer(
+      basePlayers,
+      results,
+      adminPasscode,
+      tournamentFormat,
+      groupStageConfig,
+      matchClockConfig,
+      isRegistrationEnded,
+      now
+    );
+    if (res.firestoreOk) {
+      persistLocalMutationMeta(now);
+      try {
+        localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
+      } catch {}
+      setHasPendingCloudSync(false);
+      addToast('All match results & standings published live to Firebase for everyone!', 'success');
+      return true;
+    }
+    return false;
   };
 
   const handleDeleteResult = (resultId: string) => {
@@ -1482,6 +1559,8 @@ export default function App() {
             <AdminPage
               isAdmin={isAdmin}
               isCloudSignedIn={Boolean(currentUser?.uid)}
+              hasPendingCloudSync={hasPendingCloudSync}
+              onPublishCloudNow={handlePublishCloudNow}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
               activePasscode={adminPasscode}
               players={calculatedPlayers}

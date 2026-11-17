@@ -119,8 +119,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         </div>
 
         {authError && (
-          <div className="mt-3 rounded-lg border border-rose-500/40 bg-rose-950/40 p-2.5 text-xs text-rose-300">
-            {authError}
+          <div className="mt-3 rounded-lg border border-rose-500/40 bg-rose-950/40 p-3 text-xs text-rose-200 space-y-2 text-left">
+            <p className="font-semibold text-rose-300">{authError}</p>
+            {(authError.includes('unauthorized-domain') || authError.includes('Authorized domains')) &&
+              typeof window !== 'undefined' && (
+                <div className="rounded-lg border border-amber-400/40 bg-[#050842]/80 p-2.5 text-[11px] text-amber-100 space-y-1.5">
+                  <p className="font-bold text-[#eaff28]">How to fix Google Sign-In on this domain:</p>
+                  <ol className="list-decimal list-inside space-y-1 text-[#d5deff]">
+                    <li>
+                      Open{' '}
+                      <a
+                        href="https://console.firebase.google.com/project/ambient-flames-t4mm2/authentication/settings"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline text-[#3ce7ff] font-semibold"
+                      >
+                        Firebase Console → Authentication → Settings
+                      </a>
+                    </li>
+                    <li>
+                      Under <strong>Authorized domains</strong>, click <strong>Add domain</strong> and add:{' '}
+                      <code className="rounded bg-black/40 px-1.5 py-0.5 text-[#eaff28] font-mono">
+                        {window.location.hostname}
+                      </code>
+                    </li>
+                  </ol>
+                  <p className="text-[10px] text-[#9fb0f0]">
+                    Or sign in from your AI Studio App URL first to publish match results to the shared Firebase database—everyone on GitHub Pages will see them immediately.
+                  </p>
+                </div>
+              )}
           </div>
         )}
 

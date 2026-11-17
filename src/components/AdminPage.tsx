@@ -77,6 +77,8 @@ import {
 interface AdminPageProps {
   isAdmin: boolean;
   isCloudSignedIn?: boolean;
+  hasPendingCloudSync?: boolean;
+  onPublishCloudNow?: () => Promise<boolean>;
   onOpenAuthModal?: () => void;
   activePasscode?: string;
   players: Player[];
@@ -114,6 +116,8 @@ interface AdminPageProps {
 export const AdminPage: React.FC<AdminPageProps> = ({
   isAdmin,
   isCloudSignedIn = false,
+  hasPendingCloudSync = false,
+  onPublishCloudNow,
   onOpenAuthModal,
   activePasscode,
   players,
@@ -1014,10 +1018,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({
       setSelectedFixtureIdx(nextFixtureIdx >= 0 ? nextFixtureIdx : 0);
       setHomeScore('');
       setAwayScore('');
+      const syncNote = !isCloudSignedIn
+        ? ' (Saved on this device only — Sign in with Google below to publish to everyone!)'
+        : '';
       setScoreFeedback({
         text: isPostponing
-          ? `Match marked as Postponed: ${currentFixture.home} vs ${currentFixture.away}. Next game queued up!`
-          : `Score saved: ${currentFixture.home} ${hs} - ${as} ${currentFixture.away}. Next game queued up!`,
+          ? `Match marked as Postponed: ${currentFixture.home} vs ${currentFixture.away}. Next game queued up!${syncNote}`
+          : `Score saved: ${currentFixture.home} ${hs} - ${as} ${currentFixture.away}. Next game queued up!${syncNote}`,
         isError: false,
       });
     } else {
@@ -2918,17 +2925,26 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                  {isCloudSignedIn ? (
+                  {isCloudSignedIn && !hasPendingCloudSync ? (
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/50 bg-emerald-950/50 px-3 py-1 text-[11px] font-bold text-emerald-300">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      <span>Cloud Sync Active (Server + Firebase)</span>
+                      <span>Cloud Sync Live (Visible to All Visitors)</span>
                     </span>
+                  ) : isCloudSignedIn && hasPendingCloudSync ? (
+                    <button
+                      type="button"
+                      onClick={() => onPublishCloudNow?.()}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28] bg-[#eaff28] px-3 py-1 text-[11px] font-black text-[#050842] shadow-[0_0_12px_rgba(234,255,40,0.4)] hover:scale-105 transition-transform cursor-pointer"
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                      <span>Publish Pending Results to Cloud</span>
+                    </button>
                   ) : (
                     <button
                       type="button"
                       onClick={() => onOpenAuthModal?.()}
                       className="inline-flex items-center gap-1.5 rounded-full border border-amber-400/60 bg-amber-500/15 hover:bg-amber-400 hover:text-[#050842] px-3 py-1 text-[11px] font-bold text-amber-300 transition-colors cursor-pointer"
-                      title="Sign in with Google so manual scores sync to Firebase and GitHub Pages"
+                      title="Sign in with Google so manual scores sync to Firebase for everyone opening the website link"
                     >
                       <AlertCircle className="h-3.5 w-3.5" />
                       <span>Sign In with Google to Sync All Phones</span>
@@ -2949,6 +2965,33 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   )}
                 </div>
               </div>
+
+              {(!isCloudSignedIn || hasPendingCloudSync) && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-amber-400/80 bg-amber-950/40 p-3.5 shadow-lg">
+                  <div className="flex items-start gap-2.5 text-left min-w-0 flex-1">
+                    <AlertCircle className="h-5 w-5 text-amber-300 shrink-0 mt-0.5" />
+                    <div className="text-xs leading-relaxed">
+                      <p className="font-black text-amber-200 uppercase tracking-wide">
+                        {!isCloudSignedIn
+                          ? 'Only Saved on This Device — Other Visitors Cannot See Your Match Results Yet!'
+                          : 'Pending Match Results Ready to Publish to Firebase'}
+                      </p>
+                      <p className="text-amber-100/90 mt-0.5">
+                        {!isCloudSignedIn
+                          ? 'Anyone opening the website link reads live match results from Firebase. Click the button on the right to sign in with Google once, and all recorded scores will publish immediately for everyone.'
+                          : 'Your recorded match results are saved locally and ready to push to Firebase so everyone opening the link sees them right away.'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => (!isCloudSignedIn ? onOpenAuthModal?.() : onPublishCloudNow?.())}
+                    className="shrink-0 rounded-xl bg-[#eaff28] hover:bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-[#050842] shadow-[0_0_15px_rgba(234,255,40,0.4)] transition-transform hover:scale-105 cursor-pointer"
+                  >
+                    {!isCloudSignedIn ? 'Sign In with Google & Publish Live' : 'Publish Results Live Now'}
+                  </button>
+                </div>
+              )}
 
               {/* Stage Filter Bar for Knockout format */}
               {(selectedFormat === 'knockout' || selectedFormat === 'group_knockout' || selectedFormat === 'knockout_cup') && (

@@ -56,9 +56,12 @@ export async function getTournamentDataOnce(): Promise<TournamentPayload | null>
   return null;
 }
 
-// Recursively remove any keys with undefined values from objects and arrays for Firestore
+// Recursively remove any keys with undefined/NaN values from objects and arrays for Firestore
 export function sanitizeForFirestore<T>(data: T): T {
   if (data === null || data === undefined) {
+    return null as any;
+  }
+  if (typeof data === 'number' && Number.isNaN(data)) {
     return null as any;
   }
   if (Array.isArray(data)) {
@@ -76,6 +79,14 @@ export function sanitizeForFirestore<T>(data: T): T {
     return cleaned as any;
   }
   return data;
+}
+
+export function hasPendingCloudSyncStored(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY_PENDING_CLOUD_SYNC) === 'true';
+  } catch {
+    return false;
+  }
 }
 
 export interface SaveSyncResult {

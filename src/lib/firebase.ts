@@ -11,6 +11,8 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged,
   User as FirebaseUser,
@@ -112,7 +114,20 @@ export async function validateFirestoreConnection() {
   }
 }
 
-// Sign in with Google Popup
+export async function completeGoogleRedirectSignIn(): Promise<FirebaseUser | null> {
+  try {
+    const result = await getRedirectResult(auth);
+    if (result?.user) {
+      await syncUserProfile(result.user);
+      return result.user;
+    }
+  } catch (error) {
+    console.warn('Google redirect sign-in notice:', error);
+  }
+  return null;
+}
+
+// Sign in with Google Popup (with automatic Redirect fallback on mobile/in-app browsers)
 export async function signInWithGoogle(): Promise<FirebaseUser | null> {
   try {
     const result = await signInWithPopup(auth, googleProvider);
@@ -120,7 +135,21 @@ export async function signInWithGoogle(): Promise<FirebaseUser | null> {
       await syncUserProfile(result.user);
     }
     return result.user;
-  } catch (error) {
+  } catch (error: any) {
+    const code = String(error?.code || '');
+    if (
+      code === 'auth/popup-blocked' ||
+      code === 'auth/operation-not-supported-in-this-environment'
+    ) {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+    if (code === 'auth/unauthorized-domain') {
+      const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+      throw new Error(
+        `Google Sign-In is not authorized on "${host}" in Firebase Console -> Authentication -> Settings -> Authorized domains. Add "${host}" there or sign in from the official app URL.`
+      );
+    }
     console.error('Google Sign-in failed:', error);
     throw error;
   }
