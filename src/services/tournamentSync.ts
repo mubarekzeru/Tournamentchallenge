@@ -56,12 +56,12 @@ export async function getTournamentDataOnce(): Promise<TournamentPayload | null>
   return null;
 }
 
-// Recursively remove any keys with undefined/NaN values from objects and arrays for Firestore
+// Recursively remove any keys with undefined/NaN/Infinity values from objects and arrays for Firestore
 export function sanitizeForFirestore<T>(data: T): T {
   if (data === null || data === undefined) {
     return null as any;
   }
-  if (typeof data === 'number' && Number.isNaN(data)) {
+  if (typeof data === 'number' && !Number.isFinite(data)) {
     return null as any;
   }
   if (Array.isArray(data)) {
@@ -97,7 +97,7 @@ export interface SaveSyncResult {
   errorMessage?: string;
 }
 
-function markPendingCloudSync(pending: boolean, updatedAt?: string) {
+export function markPendingCloudSync(pending: boolean, updatedAt?: string) {
   try {
     if (updatedAt) {
       localStorage.setItem(STORAGE_KEY_UPDATED_AT, updatedAt);
@@ -112,7 +112,149 @@ function markPendingCloudSync(pending: boolean, updatedAt?: string) {
   }
 }
 
-// Persist updates to server API + Firestore (requires signed-in Google user per firestore.rules)
+function toFirestoreRestValue(val: any): Record<string, any> {
+  if (val === null || val === undefined) {
+    return { nullValue: null };
+  }
+  if (typeof val === 'boolean') {
+    return { booleanValue: val };
+  }
+  if (typeof val === 'number') {
+    if (!Number.isFinite(val)) return { nullValue: null };
+    return Number.isInteger(val)
+      ? { integerValue: String(val) }
+      : { doubleValue: val };
+  }
+  if (typeof val === 'string') {
+    return { stringValue: val };
+  }
+  if (Array.isArray(val)) {
+    return {
+      arrayValue: {
+        values: val.filter((v) => v !== undefined).map((v) => toFirestoreRestValue(v)),
+      },
+    };
+  }
+  if (typeof val === 'object') {
+    const fields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (v !== undefined) {
+        fields[k] = toFirestoreRestValue(v);
+      }
+    }
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(val) };
+}
+
+async function writeTournamentViaRestFallback(cleanPayload: Record<string, any>): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('Google Sign-In is required to write to Firestore.');
+  }
+  const { default: firebaseConfig } = await import('../../firebase-applet-config.json');
+  const idToken = await user.getIdToken(true);
+  const databaseId = firebaseConfig.firestoreDatabaseId || '(default)';
+  const url = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${encodeURIComponent(
+    databaseId
+  )}/documents/tournament/${TOURNAMENT_DOC_PATH}?key=${encodeURIComponent(firebaseConfig.apiKey)}`;
+
+  const fields: Record<string, any> = {};
+  for (const [k, v] of Object.entries(cleanPayload)) {
+    if (v !== undefined) {
+      fields[k] = toFirestoreRestValue(v);
+    }
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${idToken}`,
+      },
+      body: JSON.stringify({ fields }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      if (res.status === 401 || res.status === 403) {
+        throw new Error(`Missing or insufficient permissions (${res.status}): ${errBody}`);
+      }
+      throw new Error(`Firestore REST write failed (${res.status}): ${errBody || res.statusText}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function commitTournamentDocToFirestore(cleanPayload: Record<string, any>): Promise<void> {
+  const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
+  const TIMEOUT_MS = 10000;
+
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      setDoc(docRef, cleanPayload),
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error('FIRESTORE_SDK_TIMEOUT'));
+        }, TIMEOUT_MS);
+      }),
+    ]);
+  } catch (err: any) {
+    const msg = String(err?.message || err);
+    const code = String(err?.code || '');
+    // Permission errors must be surfaced directly without masking
+    if (
+      code.includes('permission') ||
+      msg.toLowerCase().includes('permission') ||
+      code === 'unauthenticated'
+    ) {
+      throw err;
+    }
+    // If the SDK long-polling stream stalled or reported transient unavailable/timeout,
+    // immediately fall back to a direct authenticated HTTPS REST PATCH so mobile users never get stuck.
+    if (
+      msg === 'FIRESTORE_SDK_TIMEOUT' ||
+      code === 'unavailable' ||
+      code === 'deadline-exceeded' ||
+      msg.toLowerCase().includes('offline') ||
+      msg.toLowerCase().includes('network')
+    ) {
+      await writeTournamentViaRestFallback(cleanPayload);
+      return;
+    }
+    throw err;
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+  }
+}
+
+async function postToExpressBackupWithTimeout(cleanPayload: Record<string, any>): Promise<boolean> {
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('github.io')) {
+    return false;
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const apiRes = await fetch('/api/tournament', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cleanPayload),
+      signal: controller.signal,
+    });
+    return apiRes.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Persist updates to Firestore + optional local Express backup (never blocks Firestore behind /api/tournament)
 export async function saveTournamentDataToFirestore(payload: {
   players: Player[];
   results: MatchResult[];
@@ -158,26 +300,18 @@ export async function saveTournamentDataToFirestore(payload: {
   // Immediately record local timestamp & pending flag so a page refresh never erases this save
   markPendingCloudSync(true, updatedAtIso);
 
-  // 1. Persist to Node server API when available
-  let serverOk = false;
-  try {
-    const apiRes = await fetch('/api/tournament', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cleanPayload),
-    });
-    serverOk = apiRes.ok;
-  } catch {
-    serverOk = false;
-  }
+  // Kick off optional local Express backup in parallel with short timeout so it NEVER blocks Firestore
+  const serverPromise = postToExpressBackupWithTimeout(cleanPayload);
 
-  // 2. Persist to Firestore when signed in (firestore.rules: allow write: if request.auth != null)
+  // Persist to Firestore when signed in (firestore.rules: allow write: if request.auth != null)
   if (!auth.currentUser) {
+    const serverOk = await serverPromise;
     return {
       firestoreOk: false,
       serverOk,
       updatedAt: updatedAtIso,
       reason: 'auth_required',
+      errorMessage: 'Sign in with Google first to publish live to Firebase.',
     };
   }
 
@@ -185,6 +319,7 @@ export async function saveTournamentDataToFirestore(payload: {
   try {
     const approxBytes = new Blob([JSON.stringify(cleanPayload)]).size;
     if (approxBytes > 980_000) {
+      const serverOk = await serverPromise;
       return {
         firestoreOk: false,
         serverOk,
@@ -199,11 +334,12 @@ export async function saveTournamentDataToFirestore(payload: {
 
   const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
   try {
-    const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
-    await setDoc(docRef, cleanPayload);
+    await commitTournamentDocToFirestore(cleanPayload);
     markPendingCloudSync(false, updatedAtIso);
+    const serverOk = await serverPromise;
     return { firestoreOk: true, serverOk, updatedAt: updatedAtIso };
   } catch (err: any) {
+    const serverOk = await serverPromise;
     const msg = String(err?.message || err);
     if (msg.toLowerCase().includes('permission')) {
       try {
@@ -216,7 +352,7 @@ export async function saveTournamentDataToFirestore(payload: {
         serverOk,
         updatedAt: updatedAtIso,
         reason: 'permission_denied',
-        errorMessage: msg,
+        errorMessage: 'Firebase permission denied. Please sign out and sign in again with Google.',
       };
     }
     console.error('Error saving to Firestore:', err);
@@ -225,7 +361,9 @@ export async function saveTournamentDataToFirestore(payload: {
       serverOk,
       updatedAt: updatedAtIso,
       reason: 'error',
-      errorMessage: msg,
+      errorMessage: msg.includes('Failed to fetch') || msg.toLowerCase().includes('offline')
+        ? 'Network connection issue while reaching Firebase. Check your internet and try again.'
+        : msg,
     };
   }
 }
@@ -242,8 +380,7 @@ export async function pushSnapshotToFirestoreOnly(payload: Record<string, any>):
   });
   const docPath = `tournament/${TOURNAMENT_DOC_PATH}`;
   try {
-    const docRef = doc(db, 'tournament', TOURNAMENT_DOC_PATH);
-    await setDoc(docRef, cleanPayload);
+    await commitTournamentDocToFirestore(cleanPayload);
     markPendingCloudSync(false, updatedAtIso);
     return true;
   } catch (err: any) {

@@ -78,7 +78,7 @@ interface AdminPageProps {
   isAdmin: boolean;
   isCloudSignedIn?: boolean;
   hasPendingCloudSync?: boolean;
-  onPublishCloudNow?: () => Promise<boolean>;
+  onPublishCloudNow?: () => Promise<{ ok: boolean; error?: string } | boolean>;
   onOpenAuthModal?: () => void;
   activePasscode?: string;
   players: Player[];
@@ -153,6 +153,38 @@ export const AdminPage: React.FC<AdminPageProps> = ({
 }) => {
   const passToMatch = activePasscode || ADMIN_PASSCODE;
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [isPublishingCloud, setIsPublishingCloud] = useState(false);
+  const [publishFeedback, setPublishFeedback] = useState<{ text: string; isError: boolean } | null>(null);
+
+  const handlePublishCloudClick = async () => {
+    if (isPublishingCloud || !onPublishCloudNow) return;
+    setIsPublishingCloud(true);
+    setPublishFeedback(null);
+    try {
+      const rawResult = await onPublishCloudNow();
+      const ok = typeof rawResult === 'boolean' ? rawResult : Boolean(rawResult?.ok);
+      const errMsg = typeof rawResult === 'object' && rawResult ? rawResult.error : undefined;
+      if (ok) {
+        setPublishFeedback({
+          text: 'Published! All match results & standings are now live on Firebase for everyone opening your link.',
+          isError: false,
+        });
+        setTimeout(() => setPublishFeedback(null), 5000);
+      } else {
+        setPublishFeedback({
+          text: errMsg || 'Publish failed. Check your internet connection or Google Sign-In and try again.',
+          isError: true,
+        });
+      }
+    } catch (err: any) {
+      setPublishFeedback({
+        text: err?.message || 'Unexpected error while publishing to Firebase. Please try again.',
+        isError: true,
+      });
+    } finally {
+      setIsPublishingCloud(false);
+    }
+  };
   // Tournament format selection state
   const [selectedFormat, setSelectedFormat] = useState<TournamentFormat>(tournamentFormat);
   const [switchConfirmTarget, setSwitchConfirmTarget] = useState<{
@@ -2933,11 +2965,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   ) : isCloudSignedIn && hasPendingCloudSync ? (
                     <button
                       type="button"
-                      onClick={() => onPublishCloudNow?.()}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28] bg-[#eaff28] px-3 py-1 text-[11px] font-black text-[#050842] shadow-[0_0_12px_rgba(234,255,40,0.4)] hover:scale-105 transition-transform cursor-pointer"
+                      disabled={isPublishingCloud}
+                      onClick={handlePublishCloudClick}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-[#eaff28] bg-[#eaff28] px-3 py-1 text-[11px] font-black text-[#050842] shadow-[0_0_12px_rgba(234,255,40,0.4)] hover:scale-105 transition-transform cursor-pointer disabled:opacity-70 disabled:cursor-wait"
                     >
-                      <Zap className="h-3.5 w-3.5" />
-                      <span>Publish Pending Results to Cloud</span>
+                      <Zap className={`h-3.5 w-3.5 ${isPublishingCloud ? 'animate-spin' : ''}`} />
+                      <span>{isPublishingCloud ? 'Publishing...' : 'Publish Pending Results to Cloud'}</span>
                     </button>
                   ) : (
                     <button
@@ -2985,11 +3018,36 @@ export const AdminPage: React.FC<AdminPageProps> = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => (!isCloudSignedIn ? onOpenAuthModal?.() : onPublishCloudNow?.())}
-                    className="shrink-0 rounded-xl bg-[#eaff28] hover:bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-[#050842] shadow-[0_0_15px_rgba(234,255,40,0.4)] transition-transform hover:scale-105 cursor-pointer"
+                    disabled={isPublishingCloud}
+                    onClick={() => (!isCloudSignedIn ? onOpenAuthModal?.() : handlePublishCloudClick())}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-xl bg-[#eaff28] hover:bg-white px-4 py-2 text-xs font-black uppercase tracking-wider text-[#050842] shadow-[0_0_15px_rgba(234,255,40,0.4)] transition-transform hover:scale-105 cursor-pointer disabled:opacity-70 disabled:cursor-wait"
                   >
-                    {!isCloudSignedIn ? 'Sign In with Google & Publish Live' : 'Publish Results Live Now'}
+                    {isPublishingCloud && <Zap className="h-3.5 w-3.5 animate-spin" />}
+                    <span>
+                      {!isCloudSignedIn
+                        ? 'Sign In with Google & Publish Live'
+                        : isPublishingCloud
+                        ? 'Publishing to Firebase...'
+                        : 'Publish Results Live Now'}
+                    </span>
                   </button>
+                </div>
+              )}
+
+              {publishFeedback && (
+                <div
+                  className={`mt-3 flex items-center gap-2 rounded-xl border p-3 text-xs font-bold ${
+                    publishFeedback.isError
+                      ? 'border-rose-500/60 bg-rose-950/60 text-rose-200'
+                      : 'border-emerald-400/60 bg-emerald-950/60 text-emerald-200'
+                  }`}
+                >
+                  {publishFeedback.isError ? (
+                    <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                  )}
+                  <span>{publishFeedback.text}</span>
                 </div>
               )}
 

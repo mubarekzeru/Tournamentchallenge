@@ -46,6 +46,7 @@ import {
   saveTournamentDataToFirestore,
   pushSnapshotToFirestoreOnly,
   getTournamentDataOnce,
+  markPendingCloudSync,
   STORAGE_KEY_UPDATED_AT,
   STORAGE_KEY_PENDING_CLOUD_SYNC,
   hasPendingCloudSyncStored,
@@ -261,6 +262,17 @@ export default function App() {
       });
 
       if (res.firestoreOk) {
+        const syncedMs = Date.parse(res.updatedAt) || Date.now();
+        if (syncedMs > latestFirestoreTimestampRef.current) {
+          latestFirestoreTimestampRef.current = syncedMs;
+        }
+        if (syncedMs > latestRemoteTimestampRef.current) {
+          latestRemoteTimestampRef.current = syncedMs;
+        }
+        if (syncedMs > lastManualMutationRef.current) {
+          lastManualMutationRef.current = syncedMs;
+        }
+        markPendingCloudSync(false, res.updatedAt);
         setHasPendingCloudSync(false);
       } else {
         setHasPendingCloudSync(true);
@@ -333,11 +345,15 @@ export default function App() {
     }
   })());
 
-  const persistLocalMutationMeta = useCallback((tsMs: number) => {
+  const persistLocalMutationMeta = useCallback((tsMs: number, pending = true) => {
     lastManualMutationRef.current = tsMs;
     try {
       localStorage.setItem(STORAGE_KEY_UPDATED_AT, new Date(tsMs).toISOString());
-      localStorage.setItem(STORAGE_KEY_PENDING_CLOUD_SYNC, 'true');
+      if (pending) {
+        localStorage.setItem(STORAGE_KEY_PENDING_CLOUD_SYNC, 'true');
+      } else {
+        localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
+      }
       localStorage.setItem(
         STORAGE_KEY_DELETED_IDS,
         JSON.stringify(Array.from(deletedResultIdsRef.current).slice(-100))
@@ -485,19 +501,30 @@ export default function App() {
       ? Date.parse(candidateSource.updatedAt) || 0
       : 0;
 
-    if (
+    const shouldBridgeByTime =
       candidateSource &&
       Array.isArray(candidateSource.players) &&
       candidateTime > 0 &&
       candidateTime > latestFirestoreTimestampRef.current &&
-      candidateTime > lastBridgedServerTimeRef.current
-    ) {
+      candidateTime > lastBridgedServerTimeRef.current;
+
+    if (shouldBridgeByTime || (hasPendingLocalSync && candidateSource && Array.isArray(candidateSource.players))) {
       isBridgingToFirestoreRef.current = true;
       try {
         const remoteDoc = await getTournamentDataOnce();
         const remoteTime = remoteDoc?.updatedAt ? Date.parse(remoteDoc.updatedAt) || 0 : 0;
-        if (remoteTime >= candidateTime) {
+        const remoteResultIds = new Set(
+          Array.isArray(remoteDoc?.results) ? remoteDoc.results.map((r: any) => r?.id).filter(Boolean) : []
+        );
+        const localHasUnpushedResults =
+          hasPendingLocalSync &&
+          Array.isArray(candidateSource.results) &&
+          candidateSource.results.some((r: any) => r?.id && !remoteResultIds.has(r.id));
+
+        if (remoteTime >= candidateTime && !localHasUnpushedResults) {
           latestFirestoreTimestampRef.current = remoteTime;
+          markPendingCloudSync(false);
+          setHasPendingCloudSync(false);
           return;
         }
 
@@ -522,15 +549,20 @@ export default function App() {
           ? candidateSource.results
           : [];
 
+        const pushTimeMs = Math.max(Date.now(), candidateTime, remoteTime + 1000);
         const payloadToPush = {
           ...candidateSource,
           results: mergedResults,
+          updatedAt: new Date(pushTimeMs).toISOString(),
         };
 
         const ok = await pushSnapshotToFirestoreOnly(payloadToPush);
         if (ok) {
-          lastBridgedServerTimeRef.current = candidateTime;
-          latestFirestoreTimestampRef.current = candidateTime;
+          lastBridgedServerTimeRef.current = pushTimeMs;
+          latestFirestoreTimestampRef.current = pushTimeMs;
+          latestRemoteTimestampRef.current = pushTimeMs;
+          lastManualMutationRef.current = pushTimeMs;
+          markPendingCloudSync(false, payloadToPush.updatedAt);
           setHasPendingCloudSync(false);
         }
       } finally {
@@ -539,7 +571,12 @@ export default function App() {
     }
   }, [buildLocalSnapshotPayload, mergeManualAndIncomingResults]);
 
-  // Real-time synchronization via Firebase Firestore + Server API
+  const tryBridgeRef = useRef(tryBridgeServerToFirestore);
+  useEffect(() => {
+    tryBridgeRef.current = tryBridgeServerToFirestore;
+  }, [tryBridgeServerToFirestore]);
+
+  // Real-time synchronization via Firebase Firestore + Server API (stable mount-only subscription)
   useEffect(() => {
     let isMounted = true;
 
@@ -565,6 +602,9 @@ export default function App() {
           (serverUpdatedMs > incomingTime && serverResultsLen > remoteResultsLen)
         ) {
           setHasPendingCloudSync(true);
+        } else if (incomingTime >= lastManualMutationRef.current) {
+          markPendingCloudSync(false);
+          setHasPendingCloudSync(false);
         }
       }
 
@@ -576,7 +616,7 @@ export default function App() {
         if (incomingTime === 0 || incomingTime < lastManualMutationRef.current) {
           return;
         }
-        if (hasPendingLocalSync && incomingTime <= lastManualMutationRef.current) {
+        if (hasPendingLocalSync && source === 'server' && incomingTime <= lastManualMutationRef.current) {
           return;
         }
       }
@@ -682,8 +722,11 @@ export default function App() {
       applyRemoteState(data, 'firestore');
     });
 
-    // 2. Check /api/tournament when running with Express backend
+    // 2. Check /api/tournament when running with Express backend (skip on static GitHub Pages host)
+    const isGitHubPages =
+      typeof window !== 'undefined' && window.location.hostname.endsWith('github.io');
     const fetchServerBackup = () => {
+      if (isGitHubPages) return;
       fetch('/api/tournament')
         .then((res) => {
           if (!res.ok) throw new Error('Server backup unavailable');
@@ -698,21 +741,21 @@ export default function App() {
             applyRemoteState(json.data, 'server');
           }
           if (auth.currentUser && serverTime > latestFirestoreTimestampRef.current) {
-            tryBridgeServerToFirestore();
+            tryBridgeRef.current();
           }
         })
         .catch(() => {});
     };
 
     fetchServerBackup();
-    const serverPoll = setInterval(fetchServerBackup, 10_000);
+    const serverPoll = isGitHubPages ? null : setInterval(fetchServerBackup, 10_000);
 
     return () => {
       isMounted = false;
       unsubscribe();
-      clearInterval(serverPoll);
+      if (serverPoll) clearInterval(serverPoll);
     };
-  }, [tryBridgeServerToFirestore]);
+  }, []);
 
   // As soon as a Google user signs in, push any newer local/server snapshot to Firestore
   useEffect(() => {
@@ -1247,7 +1290,11 @@ export default function App() {
     resultData: Omit<MatchResult, 'id' | 'submitted_at'>,
     existingId?: string
   ) => {
-    const now = Date.now();
+    const now = Math.max(
+      Date.now(),
+      latestFirestoreTimestampRef.current + 1,
+      lastManualMutationRef.current + 1
+    );
     let updatedResults: MatchResult[];
     if (existingId) {
       deletedResultIdsRef.current.delete(existingId);
@@ -1279,7 +1326,7 @@ export default function App() {
       updatedResults = [newResult, ...results];
     }
 
-    persistLocalMutationMeta(now);
+    persistLocalMutationMeta(now, true);
     setHasPendingCloudSync(true);
     setResults(updatedResults);
     try {
@@ -1312,12 +1359,18 @@ export default function App() {
     }
   };
 
-  const handlePublishCloudNow = async (): Promise<boolean> => {
+  const handlePublishCloudNow = async (): Promise<{ ok: boolean; error?: string }> => {
     if (!auth.currentUser) {
       setIsAuthModalOpen(true);
-      return false;
+      const errMsg = 'Please sign in with Google first, then publish results live.';
+      addToast(errMsg, 'info');
+      return { ok: false, error: errMsg };
     }
-    const now = Date.now();
+    const now = Math.max(
+      Date.now(),
+      latestFirestoreTimestampRef.current + 1000,
+      lastManualMutationRef.current + 1000
+    );
     const res = await syncToServer(
       basePlayers,
       results,
@@ -1329,15 +1382,18 @@ export default function App() {
       now
     );
     if (res.firestoreOk) {
-      persistLocalMutationMeta(now);
-      try {
-        localStorage.removeItem(STORAGE_KEY_PENDING_CLOUD_SYNC);
-      } catch {}
+      persistLocalMutationMeta(now, false);
+      latestFirestoreTimestampRef.current = now;
+      latestRemoteTimestampRef.current = now;
       setHasPendingCloudSync(false);
       addToast('All match results & standings published live to Firebase for everyone!', 'success');
-      return true;
+      return { ok: true };
     }
-    return false;
+    const errorMsg =
+      res.errorMessage ||
+      'Could not publish to Firebase right now. Please check your internet connection and Google Sign-In.';
+    addToast(errorMsg, 'error');
+    return { ok: false, error: errorMsg };
   };
 
   const handleDeleteResult = (resultId: string) => {
